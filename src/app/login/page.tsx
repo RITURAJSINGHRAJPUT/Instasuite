@@ -1,21 +1,33 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { createBrowserClient } from "@supabase/ssr";
 import { Loader2 } from "lucide-react";
 import { LogoMark } from "@/components/Logo";
 import { firstAllowedRoute } from "@/lib/permissions";
 
 export default function LoginPage() {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  // Uncontrolled inputs read via refs: browser/password-manager autofill often
+  // fills the field WITHOUT firing React's onChange, so controlled state can stay
+  // empty (button disabled, submit no-ops) even when the fields look filled. The
+  // DOM value is always correct, so we read it at submit time.
+  const emailRef = useRef<HTMLInputElement>(null);
+  const passwordRef = useRef<HTMLInputElement>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (loading || !email || !password) return;
+    if (loading) return;
+
+    const email = emailRef.current?.value.trim() ?? "";
+    const password = passwordRef.current?.value ?? "";
+    if (!email || !password) {
+      setError("Enter your email and password.");
+      return;
+    }
+
     setLoading(true);
     setError(null);
 
@@ -27,7 +39,7 @@ export default function LoginPage() {
 
     if (signInError) {
       setError(signInError.message);
-      setPassword("");
+      if (passwordRef.current) passwordRef.current.value = "";
       setLoading(false);
       return;
     }
@@ -47,6 +59,7 @@ export default function LoginPage() {
   }
 
   async function handleForgot() {
+    const email = emailRef.current?.value.trim() ?? "";
     if (!email) {
       setError("Enter your email first, then choose 'Forgot password?'.");
       return;
@@ -90,8 +103,8 @@ export default function LoginPage() {
           <label className="mb-2 block text-xs font-medium text-[var(--text-4)]">Email</label>
           <input
             type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
+            name="email"
+            ref={emailRef}
             autoFocus
             autoComplete="email"
             placeholder="you@example.com"
@@ -101,8 +114,8 @@ export default function LoginPage() {
           <label className="mb-2 mt-4 block text-xs font-medium text-[var(--text-4)]">Password</label>
           <input
             type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
+            name="password"
+            ref={passwordRef}
             autoComplete="current-password"
             placeholder="Your password"
             className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--surface-1)] px-4 py-2.5 text-base md:text-sm text-[var(--text-1)] placeholder:text-[var(--text-6)] focus:border-[var(--accent)] focus:outline-none"
@@ -113,7 +126,7 @@ export default function LoginPage() {
 
           <button
             type="submit"
-            disabled={loading || !email || !password}
+            disabled={loading}
             className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--accent)] py-2.5 text-sm font-semibold text-[var(--accent-fg)] transition-colors hover:bg-[var(--accent-hover)] disabled:opacity-40"
           >
             {loading ? <Loader2 size={15} className="animate-spin" /> : "Sign in"}
