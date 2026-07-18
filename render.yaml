@@ -1,0 +1,68 @@
+# Render Blueprint — deploy the web service + the token-refresh cron together.
+#
+# Render does NOT read vercel.json, so the cron that lives there is recreated here
+# as a scheduled job. Secrets are marked sync:false — Render prompts for them in the
+# dashboard rather than storing them in this committed file.
+#
+# Apply: Render dashboard -> New -> Blueprint -> point at this repo.
+
+services:
+  # -------- the app --------
+  - type: web
+    name: instasuite
+    runtime: node
+    plan: starter # NOT free: free instances sleep after 15m idle and drop webhooks
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /login # public, cheap, 200 when the app is up
+    autoDeploy: true
+    # Single instance on purpose: MAX_CONCURRENT_REPLIES bounds ONE process. Scaling
+    # to several instances needs a shared queue (the in-process gate can't coordinate).
+    numInstances: 1
+    envVars:
+      # Do NOT set PORT — Render injects it and `next start` binds $PORT automatically.
+      #
+      # Public (baked into the client bundle at build time):
+      - key: NEXT_PUBLIC_SUPABASE_URL
+        sync: false
+      - key: NEXT_PUBLIC_SUPABASE_ANON_KEY
+        sync: false
+      - key: NEXT_PUBLIC_APP_URL # set to https://<your-service>.onrender.com
+        sync: false
+      # Server-only secrets:
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: TOKEN_ENCRYPTION_KEY # MUST equal the local value or every stored IG token is lost
+        sync: false
+      - key: META_APP_SECRET # the INSTAGRAM app secret (also the OAuth client_secret)
+        sync: false
+      - key: INSTAGRAM_APP_ID
+        sync: false
+      - key: INSTAGRAM_REDIRECT_URI # https://<your-service>.onrender.com/api/auth/instagram/callback
+        sync: false
+      - key: INSTAGRAM_VERIFY_TOKEN
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: CRON_SECRET
+        sync: false
+      - key: MAX_CONCURRENT_REPLIES
+        value: "4"
+
+  # -------- the token-refresh cron (replaces vercel.json crons) --------
+  - type: cron
+    name: instasuite-token-refresh
+    runtime: node
+    plan: starter
+    schedule: "0 3 * * *" # daily 03:00 UTC, same as vercel.json
+    buildCommand: "" # nothing to build; it just curls the app
+    startCommand: >
+      curl -fsS -X POST "$APP_URL/api/cron/refresh-tokens"
+      -H "Authorization: Bearer $CRON_SECRET"
+    envVars:
+      - key: APP_URL # https://<your-service>.onrender.com (the web service's URL)
+        sync: false
+      - key: CRON_SECRET # MUST match the web service's CRON_SECRET
+        sync: false

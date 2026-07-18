@@ -67,7 +67,7 @@ CLAUDE.md
 AGENTS.md
 
 # deploy configs (excluded per request — keep local copies; deploys need them)
-render.yaml
+# render.yaml is tracked on purpose: Render's Blueprint reads it from the repo.
 vercel.json
 .node-version
 DEPLOY.md
