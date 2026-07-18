@@ -1,0 +1,145 @@
+@import "tailwindcss";
+
+/* Tailwind v4's stock `dark:` variant keys off prefers-color-scheme, i.e. the OS.
+   This app themes via data-theme on <html>, so the two disagreed: a `dark:` class
+   followed the OS while everything else followed the toggle. Bind it to the
+   attribute instead, so `dark:` and the semantic vars can never drift apart. */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+/* Semantic palette. The UI references these vars only, so flipping
+   data-theme on <html> re-themes the whole app. Light is the default. */
+:root,
+:root[data-theme="light"] {
+  --background: #ffffff;
+  --foreground: #0f1020;
+
+  --app-bg: #f7f8fc;
+  --panel-bg: #ffffff;
+  --sidebar-bg: #f5f6fe;
+  --modal-bg: #ffffff;
+  --overlay: rgba(15, 16, 32, 0.35);
+
+  --border: rgba(15, 16, 32, 0.08);
+  --border-strong: rgba(15, 16, 32, 0.14);
+
+  --text-1: #0f1020;
+  --text-2: rgba(15, 16, 32, 0.85);
+  --text-3: rgba(15, 16, 32, 0.65);
+  --text-4: rgba(15, 16, 32, 0.5);
+  --text-5: rgba(15, 16, 32, 0.4);
+  --text-6: rgba(15, 16, 32, 0.32);
+
+  --surface-1: rgba(15, 16, 32, 0.035);
+  --surface-2: rgba(15, 16, 32, 0.05);
+  --surface-3: rgba(15, 16, 32, 0.07);
+
+  --accent: #4f46e5;
+  --accent-hover: #4338ca;
+  --accent-soft: #eef0fd;
+  --accent-fg: #ffffff;
+  --accent-ring: rgba(79, 70, 229, 0.35);
+  --accent-gradient: linear-gradient(135deg, #6366f1, #4f46e5);
+
+  /* The Instagram ramp survives on the logo mark only — it says what the product
+     plugs into. Everything else that used to be gradient is now flat accent. */
+  --brand-gradient: linear-gradient(135deg, #833ab4, #fd1d1d, #fcb045);
+
+  /* Status colors are declared per-theme because the 400-weights the app used
+     throughout are tuned for dark surfaces and fail contrast on white. */
+  --ok: #047857;
+  --ok-soft: rgba(4, 120, 87, 0.1);
+  --warn: #b45309;
+  --warn-soft: rgba(180, 83, 9, 0.1);
+  --danger: #b91c1c;
+  --danger-soft: rgba(185, 28, 28, 0.1);
+}
+
+:root[data-theme="dark"] {
+  --background: #0f0f0f;
+  --foreground: #ededed;
+
+  --app-bg: #0f0f0f;
+  --panel-bg: #141414;
+  --sidebar-bg: #121212;
+  --modal-bg: #1a1a1a;
+  --overlay: rgba(0, 0, 0, 0.6);
+
+  --border: rgba(255, 255, 255, 0.06);
+  --border-strong: rgba(255, 255, 255, 0.1);
+
+  --text-1: #ffffff;
+  --text-2: rgba(255, 255, 255, 0.9);
+  --text-3: rgba(255, 255, 255, 0.6);
+  --text-4: rgba(255, 255, 255, 0.4);
+  --text-5: rgba(255, 255, 255, 0.3);
+  --text-6: rgba(255, 255, 255, 0.25);
+
+  --surface-1: rgba(255, 255, 255, 0.04);
+  --surface-2: rgba(255, 255, 255, 0.06);
+  --surface-3: rgba(255, 255, 255, 0.07);
+
+  /* Indigo-500 rather than -600: the darker ramp muddies against #0f0f0f. */
+  --accent: #6366f1;
+  --accent-hover: #818cf8;
+  --accent-soft: rgba(99, 102, 241, 0.16);
+  --accent-fg: #ffffff;
+  --accent-ring: rgba(99, 102, 241, 0.4);
+  --accent-gradient: linear-gradient(135deg, #818cf8, #6366f1);
+  --brand-gradient: linear-gradient(135deg, #833ab4, #fd1d1d, #fcb045);
+
+  --ok: #34d399;
+  --ok-soft: rgba(52, 211, 153, 0.14);
+  --warn: #fbbf24;
+  --warn-soft: rgba(251, 191, 36, 0.14);
+  --danger: #f87171;
+  --danger-soft: rgba(248, 113, 113, 0.14);
+}
+
+/* Registering the semantic vars here is what turns them into real utilities
+   (bg-panel, text-muted, border-line) instead of bg-[var(--panel-bg)]. */
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+
+  --color-app: var(--app-bg);
+  --color-panel: var(--panel-bg);
+  --color-sidebar: var(--sidebar-bg);
+  --color-modal: var(--modal-bg);
+
+  --color-line: var(--border);
+  --color-line-strong: var(--border-strong);
+
+  --color-ink: var(--text-1);
+  --color-ink-2: var(--text-2);
+  --color-ink-3: var(--text-3);
+  --color-muted: var(--text-4);
+  --color-muted-2: var(--text-5);
+  --color-muted-3: var(--text-6);
+
+  --color-surface-1: var(--surface-1);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-fg: var(--accent-fg);
+
+  --color-ok: var(--ok);
+  --color-ok-soft: var(--ok-soft);
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+
+  --font-sans: var(--font-jakarta);
+  --font-mono: var(--font-geist-mono);
+}
+
+/* No font-family override here: it previously hardcoded Arial, which beat the
+   loaded font everywhere a page root forgot `font-sans` (the legal pages did). */
+body {
+  background: var(--app-bg);
+  color: var(--foreground);
+  font-family: var(--font-jakarta), ui-sans-serif, system-ui, sans-serif;
+}
