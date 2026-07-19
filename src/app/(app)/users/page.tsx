@@ -52,7 +52,12 @@ export default function UsersPage() {
   const [newEmail, setNewEmail] = useState("");
   const [newRole, setNewRole] = useState("client");
   const [newPlan, setNewPlan] = useState("");
-  const [created, setCreated] = useState<{ email: string; setup_link: string | null; note: string | null } | null>(null);
+  const [created, setCreated] = useState<{
+    email: string;
+    emailed: boolean;
+    setup_link: string | null;
+    note: string | null;
+  } | null>(null);
   const [copied, setCopied] = useState(false);
 
   const [deleteTarget, setDeleteTarget] = useState<ManagedUser | null>(null);
@@ -121,7 +126,12 @@ export default function UsersPage() {
       setError(d?.error || "Couldn't create that user.");
       return;
     }
-    setCreated({ email: d.email, setup_link: d.setup_link ?? null, note: d.note ?? null });
+    setCreated({
+      email: d.email,
+      emailed: !!d.emailed,
+      setup_link: d.setup_link ?? null,
+      note: d.note ?? null,
+    });
     setNewEmail("");
     setAdding(false);
     load();
@@ -196,16 +206,26 @@ export default function UsersPage() {
         </p>
       )}
 
-      {/* Setup link — shown once, right after creation. This link sets that
-          account's password, so it's treated as a credential: copy-only, never
+      {/* Shown once, right after creation. Normally the account holder is emailed
+          a link; the copy box only appears when that send failed, because the two
+          paths mint competing recovery tokens and only one can be live. The link
+          sets a password, so it's treated as a credential: copy-only, never
           persisted or re-displayed. */}
       {created && (
         <div className="mt-4 rounded-xl border border-[var(--ok)]/25 bg-[var(--ok-soft)] p-4">
           <p className="text-[13px] font-bold text-[var(--ok)]">Created {created.email}</p>
-          {created.setup_link ? (
+          {created.emailed ? (
+            // "Sent" means the mail provider accepted it, not that it landed in an
+            // inbox — so point at spam rather than promising delivery.
+            <p className="mt-1 text-[11px] text-[var(--text-4)]">
+              We&apos;ve emailed them a link to set their password. It expires in about an
+              hour — worth telling them to check spam if it doesn&apos;t show up.
+            </p>
+          ) : created.setup_link ? (
             <>
               <p className="mt-1 text-[11px] text-[var(--text-4)]">
-                Send them this one-time link to set their password. It isn&apos;t stored — copy it now.
+                {created.note ?? "Couldn't email them."} Send this one-time link instead —
+                it isn&apos;t stored, so copy it now.
               </p>
               <div className="mt-2.5 flex gap-2">
                 <input
@@ -294,7 +314,7 @@ export default function UsersPage() {
           </div>
           <p className="mt-2 text-[11px] text-[var(--text-5)]">
             {ROLE_OPTIONS.find((o) => o.role === newRole)?.description} · No password is set —
-            you&apos;ll get a one-time link to send them.
+            they&apos;re emailed a link to choose one.
           </p>
         </div>
       )}

@@ -191,27 +191,52 @@ export async function POST(request: NextRequest) {
   }
 
   // A recovery link rather than a password: nothing secret is ever shown to the
-  // super-admin, typed into a form, or dependent on the built-in mailer (capped
-  // ~2/hour with no custom SMTP). Same shape as "Forgot password?" on /login.
+  // super-admin or typed into a form. Same shape as "Forgot password?" on /login.
+  //
+  // Send it by email, and only fall back to displaying a copyable link if that
+  // fails. These two calls CANNOT both run: each mints a recovery token and the
+  // newer one invalidates the older, so doing both would either show a dead link
+  // or email a token the displayed link just killed. One token per path.
+  //
+  // The fallback is load-bearing, not decorative: Supabase enforces a per-user
+  // send interval (60s) and an hourly cap, so a throttled send must still leave
+  // the admin a way to onboard someone.
   const origin = request.nextUrl.origin;
   let setupLink: string | null = null;
-  const { data: link, error: linkErr } = await supabaseAdmin.auth.admin.generateLink({
-    type: "recovery",
-    email,
-    options: { redirectTo: `${origin}/auth/reset` },
-  });
-  if (!linkErr) setupLink = link?.properties?.action_link ?? null;
+  let emailed = false;
+  let emailError: string | null = null;
 
-  // 201 even if the link failed — the account is real at this point, and the
-  // super-admin can fall back to "Forgot password?". Say so rather than rolling
-  // back a valid user.
+  const { error: sendErr } = await supabaseAdmin.auth.resetPasswordForEmail(email, {
+    redirectTo: `${origin}/auth/reset`,
+  });
+
+  if (!sendErr) {
+    emailed = true;
+  } else {
+    emailError = sendErr.message;
+    const { data: link, error: linkErr } = await supabaseAdmin.auth.admin.generateLink({
+      type: "recovery",
+      email,
+      options: { redirectTo: `${origin}/auth/reset` },
+    });
+    if (!linkErr) setupLink = link?.properties?.action_link ?? null;
+  }
+
+  // 201 even if the email and the link both failed — the account is real at this
+  // point, and rolling back a valid user over a delivery problem is worse. Say
+  // what happened instead.
   return Response.json(
     {
       id: userId,
       email,
       role,
+      emailed,
       setup_link: setupLink,
-      note: setupLink ? null : "Account created, but the setup link could not be generated. Ask them to use “Forgot password?” on the sign-in page.",
+      note: emailed
+        ? null
+        : setupLink
+          ? `Couldn't email them (${emailError}). Send this link instead.`
+          : "Account created, but neither the email nor a setup link could be generated. Ask them to use “Forgot password?” on the sign-in page.",
     },
     { status: 201 }
   );
