@@ -19,11 +19,21 @@ export default function AppGuard({ children }: { children: React.ReactNode }) {
   // Not a guarded feature page — don't gate it.
   if (!feature) return <>{children}</>;
 
-  if (loading) {
-    return <div className="p-8 text-xs text-[var(--text-4)]">Loading…</div>;
-  }
-
-  if (me?.capabilities?.includes(feature)) return <>{children}</>;
+  // Render the page WHILE /api/me is still in flight, rather than holding a
+  // spinner until it resolves.
+  //
+  // Blocking here cost a full client round trip on every single navigation: the
+  // page below couldn't mount, so its own data fetches couldn't even start until
+  // this one finished — making every page load two sequential round trips instead
+  // of one. On a connection far from the server that is the difference between
+  // "instant" and "a second of nothing".
+  //
+  // Safe because this guard is cosmetic: the real lock is the server-side gate on
+  // every feature API, which 404s for a role that lacks the capability regardless
+  // of what renders here. The cost is that a denied user sees the page shell for
+  // the moment /api/me takes — and it shows no data, because those same APIs
+  // refuse it — before the panel below replaces it.
+  if (loading || me?.capabilities?.includes(feature)) return <>{children}</>;
 
   return (
     <div className="flex flex-1 items-center justify-center p-8">

@@ -7,7 +7,13 @@ export async function GET(request: NextRequest) {
   const ctx = await getContext();
   if (!ctx) return Response.json({ error: "Unauthorized" }, { status: 401 });
   if (!can(ctx.user.role, "inbox")) return Response.json({ error: "Not found" }, { status: 404 });
-  if (ctx.accountIds.length === 0) return Response.json([]);
+
+  // The two response shapes differ, so every early return has to honour the mode
+  // or a caller asking for a count gets an array and reads `undefined`.
+  const wantCount = request.nextUrl.searchParams.get("count") === "1";
+  const empty = () => Response.json(wantCount ? { count: 0 } : []);
+
+  if (ctx.accountIds.length === 0) return empty();
 
   // Optional account filter for the dashboard switcher. It can only NARROW
   // within the caller's own accounts — a foreign id intersects to nothing
@@ -16,7 +22,21 @@ export async function GET(request: NextRequest) {
   const scope = requested
     ? ctx.accountIds.filter((id) => id === requested)
     : ctx.accountIds;
-  if (scope.length === 0) return Response.json([]);
+  if (scope.length === 0) return empty();
+
+  // ?count=1 returns just the total. The dashboard needs a single integer for a
+  // stat card, and without this it pulled every conversation row AND ran the
+  // per-conversation last-message query below for each one — N+1 round trips to
+  // render one number.
+  if (wantCount) {
+    const { count, error: countError } = await supabaseAdmin
+      .from("instagram_conversations")
+      .select("id", { count: "exact", head: true })
+      .in("instagram_account_id", scope);
+
+    if (countError) return Response.json({ error: countError.message }, { status: 500 });
+    return Response.json({ count: count ?? 0 });
+  }
 
   // Scoped to the caller's Instagram accounts — previously this returned EVERY
   // conversation in the database.

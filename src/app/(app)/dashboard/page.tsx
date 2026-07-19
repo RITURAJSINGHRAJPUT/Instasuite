@@ -13,6 +13,7 @@ import {
   Search,
 } from "lucide-react";
 import { tokenAge } from "@/lib/token-age";
+import { sharedGet } from "@/lib/shared-fetch";
 import VolumeChart, { type Point } from "@/components/VolumeChart";
 
 type Account = {
@@ -62,16 +63,20 @@ export default function DashboardPage() {
   const load = useCallback(async () => {
     const [a, u, c, p, b] = await Promise.all([
       fetch("/api/account"),
-      fetch("/api/usage"),
-      fetch("/api/conversations"),
+      // Shared with the Sidebar, which requests the same thing on this very load.
+      sharedGet<Usage>("/api/usage"),
+      // count=1, not the full list: this card shows one integer, and the unfiltered
+      // route runs a last-message query per conversation to build previews nobody
+      // reads here.
+      fetch("/api/conversations?count=1"),
       fetch("/api/admin/pending"), // 404s for non-super-admins
       fetch("/api/analytics/businesses"),
     ]);
     if (a.ok) setAccounts(await a.json());
-    if (u.ok) setUsage(await u.json());
+    if (u) setUsage(u); // already parsed by sharedGet
     if (c.ok) {
-      const list = await c.json();
-      setConversations(Array.isArray(list) ? list.length : 0);
+      const d = await c.json();
+      setConversations(typeof d?.count === "number" ? d.count : 0);
     }
     if (p.ok) {
       const d = await p.json();

@@ -20,6 +20,7 @@ import {
 import { createBrowserClient } from "@supabase/ssr";
 import type { Feature } from "@/lib/permissions";
 import { useMe } from "@/lib/useMe";
+import { sharedGet } from "@/lib/shared-fetch";
 import Logo from "./Logo";
 
 type Usage = {
@@ -49,10 +50,9 @@ export default function Sidebar() {
   const [dark, setDark] = useState(false);
 
   useEffect(() => {
-    fetch("/api/usage")
-      .then((r) => (r.ok ? r.json() : null))
-      .then(setUsage)
-      .catch(() => {});
+    // Shared: Overview and Settings request this too, and this component sits in
+    // the layout — so without dedupe a single page load fired it twice at once.
+    sharedGet<Usage>("/api/usage").then(setUsage);
     setDark(document.documentElement.getAttribute("data-theme") === "dark");
   }, []);
 

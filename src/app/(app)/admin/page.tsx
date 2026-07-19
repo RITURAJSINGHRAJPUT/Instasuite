@@ -62,7 +62,17 @@ export default function AdminPage() {
   const [leads, setLeads] = useState<Lead[]>([]);
 
   const load = useCallback(async () => {
-    const res = await fetch("/api/admin/pending");
+    // All four together. The other three used to wait on /api/admin/pending purely
+    // because its 404 doubles as the permission probe — but each of these routes
+    // applies the same `admin` gate and 404s on its own, so nothing is exposed by
+    // asking in parallel and the page loads in one round trip instead of two.
+    const [res, p, u, l] = await Promise.all([
+      fetch("/api/admin/pending"),
+      fetch("/api/admin/plans"),
+      fetch("/api/admin/usage"),
+      fetch("/api/admin/leads"),
+    ]);
+
     if (res.status === 404) {
       setDenied(true);
       setLoading(false);
@@ -72,11 +82,6 @@ export default function AdminPage() {
     setBusinesses(data.businesses ?? []);
     setAccounts(data.accounts ?? []);
 
-    const [p, u, l] = await Promise.all([
-      fetch("/api/admin/plans"),
-      fetch("/api/admin/usage"),
-      fetch("/api/admin/leads"),
-    ]);
     if (p.ok) setPlans(await p.json());
     if (u.ok) setUsage(await u.json());
     if (l.ok) setLeads(await l.json());

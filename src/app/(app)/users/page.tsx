@@ -64,14 +64,21 @@ export default function UsersPage() {
   const [confirmText, setConfirmText] = useState("");
 
   const load = useCallback(async () => {
-    const res = await fetch("/api/admin/users");
+    // Fired together, not chained: plans never depended on the users response —
+    // it was only awaited second because of statement order. /api/admin/users is
+    // the slowest route in the app (it pages through auth.admin.listUsers), so
+    // sequencing a second request behind it doubled this page's load for nothing.
+    const [res, p] = await Promise.all([
+      fetch("/api/admin/users"),
+      fetch("/api/admin/plans"),
+    ]);
+
     if (res.status === 404) {
       setDenied(true);
       setLoading(false);
       return;
     }
     if (res.ok) setUsers(await res.json());
-    const p = await fetch("/api/admin/plans");
     if (p.ok) {
       const list: Plan[] = await p.json();
       setPlans(list);

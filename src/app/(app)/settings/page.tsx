@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Moon, Sun } from "lucide-react";
+import { sharedGet } from "@/lib/shared-fetch";
 
 type Usage = {
   period_start: string;
@@ -27,10 +28,10 @@ export default function SettingsPage() {
   const [dark, setDark] = useState(false);
 
   useEffect(() => {
-    fetch("/api/usage")
-      .then((r) => (r.ok ? r.json() : null))
+    // Shared with the Sidebar: arriving here from Overview reuses the response
+    // rather than re-running the app's deepest route a third time.
+    sharedGet<Usage>("/api/usage")
       .then(setUsage)
-      .catch(() => {})
       .finally(() => setLoading(false));
     setDark(document.documentElement.getAttribute("data-theme") === "dark");
   }, []);
