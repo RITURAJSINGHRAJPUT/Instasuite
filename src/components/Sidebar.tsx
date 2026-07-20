@@ -18,6 +18,8 @@ import {
   LogOut,
   PanelLeftClose,
   ChevronsUpDown,
+  ChevronDown,
+  Receipt,
 } from "lucide-react";
 import { createBrowserClient } from "@supabase/ssr";
 import { ROLE_OPTIONS, type Feature } from "@/lib/permissions";
@@ -34,15 +36,74 @@ type Usage = {
 // filtered by the current user's capabilities (from /api/me), so each role sees
 // only its own sections. Users (super_admin) and Admin (admin+) are back in the
 // list — they were hard-hidden in solo mode; capability filtering replaces that.
-const NAV: { href: string; label: string; icon: typeof LayoutGrid; feature: Feature }[] = [
+type NavItem = { href: string; label: string; icon: typeof LayoutGrid; feature: Feature };
+
+// Ordered by daily use: Overview, the operational screens (Inbox, Orders), then
+// Businesses and AI Scripts. Businesses, Users and Admin no longer sit at this
+// level — they're grouped under the Settings section below.
+const MAIN_NAV: NavItem[] = [
   { href: "/dashboard", label: "Overview", icon: LayoutGrid, feature: "overview" },
-  { href: "/businesses", label: "Businesses", icon: Building2, feature: "businesses" },
   { href: "/inbox", label: "Inbox", icon: Inbox, feature: "inbox" },
+  { href: "/orders", label: "Orders", icon: Receipt, feature: "orders" },
   { href: "/scripts", label: "AI Scripts", icon: Bot, feature: "scripts" },
-  { href: "/settings", label: "Settings", icon: Settings, feature: "settings" },
-  { href: "/admin", label: "Admin", icon: ShieldCheck, feature: "admin" },
-  { href: "/users", label: "Users", icon: Users, feature: "users" },
 ];
+
+// The Settings section: the general Settings page is the section header, and these
+// management screens live inside it.
+const SETTINGS_ITEM: NavItem = { href: "/settings", label: "Settings", icon: Settings, feature: "settings" };
+const SETTINGS_CHILDREN: NavItem[] = [
+  { href: "/businesses", label: "Businesses", icon: Building2, feature: "businesses" },
+  { href: "/users", label: "Users", icon: Users, feature: "users" },
+  { href: "/admin", label: "Admin", icon: ShieldCheck, feature: "admin" },
+];
+
+// One row, shared by the flat items, the settings children and the collapsed rail.
+// `indented` shifts a child right in the expanded view; the rail always renders
+// flat icons with a hover tooltip, so grouping is purely an expanded-view concern.
+function NavRow({
+  item,
+  isCollapsed,
+  pathname,
+  indented = false,
+}: {
+  item: NavItem;
+  isCollapsed: boolean;
+  pathname: string;
+  indented?: boolean;
+}) {
+  const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
+  const Icon = item.icon;
+  return (
+    <Link
+      href={item.href}
+      aria-current={active ? "page" : undefined}
+      title={isCollapsed ? item.label : undefined}
+      className={`group relative mb-0.5 flex items-center rounded-lg text-[13px] font-semibold transition-colors ${
+        isCollapsed
+          ? "justify-center px-0 py-2.5"
+          : indented
+            ? "gap-2.5 py-2 pl-11 pr-3"
+            : "gap-3 px-3 py-2.5"
+      } ${
+        active
+          ? "bg-[var(--accent-soft)] text-[var(--accent)]"
+          : "text-[var(--text-4)] hover:bg-[var(--surface-1)] hover:text-[var(--text-2)]"
+      }`}
+    >
+      <Icon size={indented ? 15 : 17} strokeWidth={2.2} />
+      {isCollapsed ? <span className="sr-only">{item.label}</span> : item.label}
+      {isCollapsed && (
+        <span
+          role="tooltip"
+          className="pointer-events-none absolute left-full z-50 ml-2 hidden whitespace-nowrap rounded-md px-2 py-1 text-[11px] font-semibold text-[var(--accent-fg)] opacity-0 shadow-md transition-opacity group-hover:opacity-100 md:block"
+          style={{ background: "var(--text-1)" }}
+        >
+          {item.label}
+        </span>
+      )}
+    </Link>
+  );
+}
 
 export default function Sidebar() {
   const pathname = usePathname();
@@ -56,6 +117,7 @@ export default function Sidebar() {
   // and a fresh load starts expanded.
   const [collapsed, setCollapsed] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   useEffect(() => {
     // Shared: Overview and Settings request this too, and this component sits in
@@ -104,7 +166,19 @@ export default function Sidebar() {
 
   // Show only the sections this role can use. Until /api/me resolves, `me` is
   // null and the nav is briefly empty (the result is cached, so this happens once).
-  const links = NAV.filter((l) => me?.capabilities?.includes(l.feature));
+  const has = (f: Feature) => !!me?.capabilities?.includes(f);
+  const mainLinks = MAIN_NAV.filter((l) => has(l.feature));
+  // Everything inside the Settings section: the general Settings page (as "General")
+  // plus the management screens — filtered to what the role can reach. A manager,
+  // for instance, has Businesses but not the Settings page, so the group still
+  // shows, containing only Businesses.
+  const settingsMembers: NavItem[] = [
+    ...(has("settings") ? [{ ...SETTINGS_ITEM, label: "General" }] : []),
+    ...SETTINGS_CHILDREN.filter((l) => has(l.feature)),
+  ];
+  const sectionActive = settingsMembers.some(
+    (m) => pathname === m.href || pathname.startsWith(`${m.href}/`)
+  );
 
   const cap = usage?.subscription?.plans?.max_messages_per_month ?? null;
   const used = usage?.totals?.messages ?? 0;
@@ -168,44 +242,43 @@ export default function Sidebar() {
       <nav
         className={`flex-1 ${isCollapsed ? "overflow-visible px-2" : "overflow-y-auto px-3"}`}
       >
-        {links.map((l) => {
-          const active = pathname === l.href || pathname.startsWith(`${l.href}/`);
-          const Icon = l.icon;
-          return (
-            <Link
-              key={l.href}
-              href={l.href}
-              aria-current={active ? "page" : undefined}
-              title={isCollapsed ? l.label : undefined}
-              className={`group relative mb-0.5 flex items-center rounded-lg text-[13px] font-semibold transition-colors ${
-                isCollapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2.5"
-              } ${
-                active
-                  ? "bg-[var(--accent-soft)] text-[var(--accent)]"
-                  : "text-[var(--text-4)] hover:bg-[var(--surface-1)] hover:text-[var(--text-2)]"
-              }`}
-            >
-              <Icon size={17} strokeWidth={2.2} />
-              {isCollapsed ? (
-                // Label still needs to be reachable by screen readers when it isn't
-                // painted, hence sr-only rather than dropping it.
-                <span className="sr-only">{l.label}</span>
-              ) : (
-                l.label
-              )}
+        {mainLinks.map((l) => (
+          <NavRow key={l.href} item={l} isCollapsed={isCollapsed} pathname={pathname} />
+        ))}
 
-              {isCollapsed && (
-                <span
-                  role="tooltip"
-                  className="pointer-events-none absolute left-full z-50 ml-2 hidden whitespace-nowrap rounded-md px-2 py-1 text-[11px] font-semibold text-[var(--accent-fg)] opacity-0 shadow-md transition-opacity group-hover:opacity-100 md:block"
-                  style={{ background: "var(--text-1)" }}
-                >
-                  {l.label}
-                </span>
-              )}
-            </Link>
-          );
-        })}
+        {settingsMembers.length > 0 &&
+          (isCollapsed ? (
+            // Rail: flat tooltipped icons — grouping is an expanded-view concern.
+            settingsMembers.map((l) => (
+              <NavRow key={l.href} item={l} isCollapsed pathname={pathname} />
+            ))
+          ) : (
+            <>
+              {/* Closed by default: the whole row is a toggle — tap "Settings" to
+                  reveal the section. Highlighted while you're on one of its pages so
+                  you can tell you're inside it even when it's collapsed. */}
+              <button
+                onClick={() => setSettingsOpen((o) => !o)}
+                aria-expanded={settingsOpen}
+                className={`mb-0.5 mt-1 flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-[13px] font-semibold transition-colors ${
+                  sectionActive && !settingsOpen
+                    ? "bg-[var(--accent-soft)] text-[var(--accent)]"
+                    : "text-[var(--text-4)] hover:bg-[var(--surface-1)] hover:text-[var(--text-2)]"
+                }`}
+              >
+                <Settings size={17} strokeWidth={2.2} />
+                <span className="flex-1 text-left">Settings</span>
+                <ChevronDown
+                  size={15}
+                  className={`flex-shrink-0 transition-transform ${settingsOpen ? "" : "-rotate-90"}`}
+                />
+              </button>
+              {settingsOpen &&
+                settingsMembers.map((l) => (
+                  <NavRow key={l.href} item={l} isCollapsed={false} pathname={pathname} indented />
+                ))}
+            </>
+          ))}
       </nav>
 
       {/* One button. Plan, usage, theme and log out all live in the popover it

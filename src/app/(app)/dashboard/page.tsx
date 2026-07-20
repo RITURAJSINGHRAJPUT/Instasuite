@@ -2,16 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import {
-  Building2,
-  AtSign,
-  MessageSquare,
-  Coins,
-  TrendingUp,
-  TrendingDown,
-  AlertTriangle,
-  Search,
-} from "lucide-react";
+import { Building2, AtSign, MessageSquare, Coins, AlertTriangle } from "lucide-react";
 import { tokenAge } from "@/lib/token-age";
 import { sharedGet } from "@/lib/shared-fetch";
 import VolumeChart, { type Point } from "@/components/VolumeChart";
@@ -33,19 +24,28 @@ type Usage = {
   } | null;
 };
 
-type Volume = { days: number; series: Point[]; total: number };
-
-type BizRow = {
-  id: string;
-  name: string;
-  status: string;
-  handles: string[];
-  messages: number;
-  costCents: number;
-  deltaPct: number | null;
+type Volume = {
+  days: number;
+  total: number;
+  accounts: { account_id: string; total: number; series: Point[] }[];
 };
 
 type AdminAccount = { username: string | null; token_expires_at: string | null; status: string };
+
+type AccountStat = {
+  account_id: string;
+  username: string | null;
+  name: string | null;
+  status: string;
+  conversations: number;
+  human_handled: number;
+  ai_replies: number;
+  cost_cents: number;
+  last_activity: string | null;
+  // Detected from chat text (heuristic), not a ledger — see the endpoint comment.
+  takeaway_orders: number;
+  reservations: number;
+};
 
 export default function DashboardPage() {
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -54,14 +54,13 @@ export default function DashboardPage() {
   const [pending, setPending] = useState<{ businesses: number; accounts: number } | null>(null);
   const [adminTokens, setAdminTokens] = useState<AdminAccount[]>([]);
   const [volume, setVolume] = useState<Volume | null>(null);
-  const [biz, setBiz] = useState<BizRow[]>([]);
+  const [accountStats, setAccountStats] = useState<AccountStat[]>([]);
   const [days, setDays] = useState(30);
-  const [q, setQ] = useState("");
   const [loading, setLoading] = useState(true);
 
   // Everything here comes from endpoints that are already ownership-scoped.
   const load = useCallback(async () => {
-    const [a, u, c, p, b] = await Promise.all([
+    const [a, u, c, p, s] = await Promise.all([
       fetch("/api/account"),
       // Shared with the Sidebar, which requests the same thing on this very load.
       sharedGet<Usage>("/api/usage"),
@@ -70,7 +69,7 @@ export default function DashboardPage() {
       // reads here.
       fetch("/api/conversations?count=1"),
       fetch("/api/admin/pending"), // 404s for non-super-admins
-      fetch("/api/analytics/businesses"),
+      fetch("/api/analytics/accounts"),
     ]);
     if (a.ok) setAccounts(await a.json());
     if (u) setUsage(u); // already parsed by sharedGet
@@ -86,7 +85,7 @@ export default function DashboardPage() {
       });
       setAdminTokens(d.accounts ?? []);
     }
-    if (b.ok) setBiz(await b.json());
+    if (s.ok) setAccountStats(await s.json());
     setLoading(false);
   }, []);
 
@@ -122,43 +121,29 @@ export default function DashboardPage() {
     return level === "warn" || level === "danger";
   });
 
-  const filteredBiz = q
-    ? biz.filter(
-        (b) =>
-          b.name.toLowerCase().includes(q.toLowerCase()) ||
-          b.handles.some((h) => h.toLowerCase().includes(q.toLowerCase()))
-      )
-    : biz;
+  // Label a volume series by account. /api/analytics/volume returns account_id only;
+  // the usernames are already on hand from /api/account.
+  const accountName = (id: string) => {
+    const a = accounts.find((x) => x.id === id);
+    return a?.username ? `@${a.username}` : a?.name || "Account";
+  };
 
+  // Fixed-height frame on desktop so the page fills the viewport and doesn't scroll;
+  // on mobile the content is taller than any phone, so it flows and `main` scrolls.
   return (
-    <div className="mx-auto w-full max-w-6xl px-4 py-6 md:px-8">
-      {/* The search bar from the reference lives on this page only; other
-          screens bring their own header. */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-extrabold tracking-tight text-[var(--text-1)]">Overview</h1>
-          <p className="text-[13px] text-[var(--text-4)]">
-            This month, across your connected accounts.
-          </p>
-        </div>
-        <div className="relative">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-5)]" />
-          <input
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Search businesses…"
-            className="w-full rounded-xl border border-[var(--border)] bg-[var(--panel-bg)] py-2 pl-9 pr-3 text-base text-[var(--text-1)] placeholder:text-[var(--text-5)] focus:border-[var(--accent)] focus:outline-none md:w-64 md:text-[13px]"
-          />
-        </div>
+    <div className="mx-auto flex w-full max-w-6xl flex-col px-4 py-5 md:h-full md:min-h-0 md:overflow-hidden md:px-8 md:py-6">
+      <div className="flex-shrink-0">
+        <h1 className="text-xl font-extrabold tracking-tight text-[var(--text-1)]">Overview</h1>
+        <p className="text-[13px] text-[var(--text-4)]">This month, across your connected accounts.</p>
       </div>
 
       {loading ? (
         <p className="mt-8 text-xs text-[var(--text-4)]">Loading…</p>
       ) : (
-        <>
+        <div className="mt-4 flex min-h-0 flex-1 flex-col gap-3">
           {/* Things that need attention come first */}
           {atRisk.length > 0 && (
-            <div className="mt-5 rounded-xl border border-[var(--danger)]/25 bg-[var(--danger-soft)] p-4">
+            <div className="flex-shrink-0 rounded-xl border border-[var(--danger)]/25 bg-[var(--danger-soft)] p-3">
               <p className="flex items-center gap-2 text-[13px] font-bold text-[var(--danger)]">
                 <AlertTriangle size={14} />
                 {atRisk.length} account{atRisk.length === 1 ? "" : "s"} need attention
@@ -173,7 +158,7 @@ export default function DashboardPage() {
           )}
 
           {pending && pending.businesses + pending.accounts > 0 && (
-            <div className="mt-4 flex items-center justify-between gap-3 rounded-xl border border-[var(--warn)]/25 bg-[var(--warn-soft)] p-4">
+            <div className="flex flex-shrink-0 items-center justify-between gap-3 rounded-xl border border-[var(--warn)]/25 bg-[var(--warn-soft)] p-3">
               <p className="text-[13px] font-semibold text-[var(--warn)]">
                 {pending.businesses} business{pending.businesses === 1 ? "" : "es"} and{" "}
                 {pending.accounts} account{pending.accounts === 1 ? "" : "s"} awaiting approval
@@ -189,7 +174,7 @@ export default function DashboardPage() {
 
           {/* Four real numbers. The reference's "AI Efficiency" card is absent:
               no accuracy signal exists in the schema to compute one from. */}
-          <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid flex-shrink-0 gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <Stat icon={Building2} label="Conversations" value={String(conversations)} sub="all time" />
             <Stat
               icon={MessageSquare}
@@ -212,7 +197,7 @@ export default function DashboardPage() {
           </div>
 
           {cap !== null && (
-            <div className="mt-4">
+            <div className="flex-shrink-0">
               <div className="h-1.5 w-full overflow-hidden rounded-full bg-[var(--surface-2)]">
                 <div
                   className="h-full rounded-full transition-all"
@@ -230,127 +215,121 @@ export default function DashboardPage() {
             </div>
           )}
 
-          {/* Message volume */}
-          <div className="mt-5 rounded-2xl border border-[var(--border)] bg-[var(--panel-bg)] p-5">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <h2 className="text-[15px] font-bold text-[var(--text-1)]">Message volume</h2>
-                <p className="text-[12px] text-[var(--text-4)]">
-                  Messages in and out, across your accounts
-                </p>
-              </div>
-              <div className="flex gap-1 rounded-lg bg-[var(--surface-1)] p-0.5">
-                {[7, 30].map((d) => (
-                  <button
-                    key={d}
-                    onClick={() => setDays(d)}
-                    className={`rounded-md px-3 py-1 text-[11px] font-bold transition-colors ${
-                      days === d
-                        ? "bg-[var(--accent)] text-[var(--accent-fg)]"
-                        : "text-[var(--text-4)] hover:text-[var(--text-2)]"
-                    }`}
-                  >
-                    {d} days
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="mt-4">
-              {!volume ? (
-                <p className="py-12 text-center text-xs text-[var(--text-5)]">Loading…</p>
-              ) : volume.total === 0 ? (
-                // A real empty state, not a flat zero-line pretending to be a trend.
-                <div className="py-12 text-center">
-                  <p className="text-[13px] font-semibold text-[var(--text-3)]">
-                    No messages in the last {volume.days} days
-                  </p>
-                  <p className="mt-1 text-[11px] text-[var(--text-5)]">
-                    New DMs will appear here as they arrive.
+          {/* Fills the remaining height: chart and per-account cards side by side. */}
+          <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-2">
+            {/* Message volume */}
+            <div className="flex min-h-0 flex-col overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--panel-bg)] p-5">
+              <div className="flex flex-shrink-0 flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-[15px] font-bold text-[var(--text-1)]">Message volume</h2>
+                  <p className="text-[12px] text-[var(--text-4)]">
+                    Messages in and out, across your accounts
                   </p>
                 </div>
-              ) : (
-                <>
-                  <VolumeChart series={volume.series} />
-                  <p className="mt-1 text-[11px] text-[var(--text-5)]">
-                    {volume.total.toLocaleString()} message{volume.total === 1 ? "" : "s"} in this period
+                <div className="flex gap-1 rounded-lg bg-[var(--surface-1)] p-0.5">
+                  {[7, 30].map((d) => (
+                    <button
+                      key={d}
+                      onClick={() => setDays(d)}
+                      className={`rounded-md px-3 py-1 text-[11px] font-bold transition-colors ${
+                        days === d
+                          ? "bg-[var(--accent)] text-[var(--accent-fg)]"
+                          : "text-[var(--text-4)] hover:text-[var(--text-2)]"
+                      }`}
+                    >
+                      {d} days
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* One mini-chart per connected account, stacked. Scrolls within the
+                  card on a short screen rather than pushing the page past the fold. */}
+              <div className="mt-3 flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
+                {!volume ? (
+                  <p className="my-auto text-center text-xs text-[var(--text-5)]">Loading…</p>
+                ) : volume.accounts.length === 0 ? (
+                  <p className="my-auto text-center text-xs text-[var(--text-5)]">
+                    No connected accounts yet.
                   </p>
-                </>
-              )}
-            </div>
-          </div>
-
-          {/* Business performance */}
-          <div className="mt-5 rounded-2xl border border-[var(--border)] bg-[var(--panel-bg)]">
-            <div className="border-b border-[var(--border)] px-5 py-4">
-              <h2 className="text-[15px] font-bold text-[var(--text-1)]">Business performance</h2>
-              <p className="text-[12px] text-[var(--text-4)]">AI replies and spend, last 7 days</p>
-            </div>
-
-            {filteredBiz.length === 0 ? (
-              <p className="px-5 py-8 text-center text-xs text-[var(--text-5)]">
-                {q ? "No businesses match that search." : "No businesses yet."}{" "}
-                {!q && (
-                  <Link href="/businesses" className="text-[var(--accent)] underline">
-                    Add one →
-                  </Link>
+                ) : (
+                  volume.accounts.map((acc) => (
+                    <div key={acc.account_id}>
+                      <div className="flex items-baseline justify-between gap-2">
+                        <span className="truncate text-[12px] font-bold text-[var(--text-1)]">
+                          {accountName(acc.account_id)}
+                        </span>
+                        <span className="flex-shrink-0 text-[10px] text-[var(--text-5)]">
+                          {acc.total.toLocaleString()} msg{acc.total === 1 ? "" : "s"}
+                        </span>
+                      </div>
+                      {acc.total === 0 ? (
+                        <p className="py-4 text-center text-[11px] text-[var(--text-5)]">
+                          No messages in the last {volume.days} days
+                        </p>
+                      ) : (
+                        <VolumeChart series={acc.series} />
+                      )}
+                    </div>
+                  ))
                 )}
-              </p>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[560px]">
-                  <thead>
-                    <tr className="border-b border-[var(--border)] text-left">
-                      {["Business", "Status", "AI replies", "Cost"].map((h) => (
-                        <th
-                          key={h}
-                          className="px-5 py-2.5 text-[10px] font-bold uppercase tracking-wider text-[var(--text-5)]"
-                        >
-                          {h}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredBiz.map((b) => (
-                      <tr key={b.id} className="border-b border-[var(--border)] last:border-0">
-                        <td className="px-5 py-3.5">
-                          <p className="text-[13px] font-bold text-[var(--text-1)]">{b.name}</p>
-                          <p className="text-[11px] text-[var(--text-4)]">
-                            {b.handles.length
-                              ? b.handles.map((h) => `@${h}`).join(", ")
-                              : "No account connected"}
+              </div>
+            </div>
+
+            {/* By account — real per-account totals. No reservations/takeaways figure
+                here: neither is tracked, so a number would be invented. The details
+                live on the Orders page, linked below. Scrolls within its own column
+                on a short screen rather than pushing the page past the viewport. */}
+            {accountStats.length > 0 && (
+              <div className="flex min-h-0 flex-col">
+                <h2 className="flex-shrink-0 text-[15px] font-bold text-[var(--text-1)]">By account</h2>
+                <p className="flex-shrink-0 text-[12px] text-[var(--text-4)]">
+                  All-time totals per connected Instagram account
+                </p>
+                <div className="mt-3 grid min-h-0 flex-1 content-start gap-3 overflow-y-auto">
+                  {accountStats.map((s) => (
+                    <div
+                      key={s.account_id}
+                      className="rounded-2xl border border-[var(--border)] bg-[var(--panel-bg)] p-4"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="truncate text-[14px] font-bold text-[var(--text-1)]">
+                            {s.username ? `@${s.username}` : s.name || "Account"}
                           </p>
-                        </td>
-                        <td className="px-5 py-3.5">
-                          <StatusPill status={b.status} />
-                        </td>
-                        <td className="px-5 py-3.5">
-                          <span className="text-[13px] font-bold text-[var(--text-1)]">{b.messages}</span>
-                          {/* Only when there's a prior week to compare against;
-                              null means no baseline, so no delta is shown. */}
-                          {b.deltaPct !== null && b.deltaPct !== 0 && (
-                            <span
-                              className={`ml-2 inline-flex items-center gap-0.5 text-[11px] font-bold ${
-                                b.deltaPct > 0 ? "text-[var(--ok)]" : "text-[var(--danger)]"
-                              }`}
-                            >
-                              {b.deltaPct > 0 ? <TrendingUp size={11} /> : <TrendingDown size={11} />}
-                              {Math.abs(b.deltaPct)}%
-                            </span>
+                          {s.name && s.username && (
+                            <p className="truncate text-[11px] text-[var(--text-4)]">{s.name}</p>
                           )}
-                        </td>
-                        <td className="px-5 py-3.5 text-[13px] text-[var(--text-3)]">
-                          ${(b.costCents / 100).toFixed(2)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                        </div>
+                        <StatusPill status={s.status} />
+                      </div>
+                      {/* Six metrics in one dense 3-col grid (was two grids + a
+                          divider) to save vertical space. */}
+                      <div className="mt-3 grid grid-cols-3 gap-3">
+                        <CardStat
+                          label="Convos"
+                          value={String(s.conversations)}
+                          sub={`${s.human_handled} human`}
+                        />
+                        <CardStat label="AI replies" value={String(s.ai_replies)} />
+                        <CardStat label="Cost" value={`$${(s.cost_cents / 100).toFixed(2)}`} />
+                        <CardStat label="Orders" value={String(s.takeaway_orders)} sub="detected" />
+                        <CardStat label="Reservations" value={String(s.reservations)} sub="links" />
+                        <CardStat label="Last active" value={relTime(s.last_activity)} />
+                      </div>
+                      <Link
+                        href={`/orders?account=${s.account_id}`}
+                        className="mt-3 inline-block text-[11px] font-bold text-[var(--accent)] hover:underline"
+                      >
+                        View orders &amp; reservations →
+                      </Link>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
           </div>
-        </>
+        </div>
       )}
     </div>
   );
@@ -368,15 +347,37 @@ function Stat({
   sub?: string;
 }) {
   return (
-    <div className="rounded-2xl border border-[var(--border)] bg-[var(--panel-bg)] p-4">
-      <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[var(--accent-soft)]">
-        <Icon size={16} className="text-[var(--accent)]" />
+    <div className="rounded-2xl border border-[var(--border)] bg-[var(--panel-bg)] p-3.5">
+      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--accent-soft)]">
+        <Icon size={15} className="text-[var(--accent)]" />
       </div>
-      <p className="mt-3 text-[11px] font-bold uppercase tracking-wide text-[var(--text-5)]">{label}</p>
-      <p className="mt-0.5 text-2xl font-extrabold tracking-tight text-[var(--text-1)]">{value}</p>
+      <p className="mt-2.5 text-[11px] font-bold uppercase tracking-wide text-[var(--text-5)]">{label}</p>
+      <p className="mt-0.5 text-xl font-extrabold tracking-tight text-[var(--text-1)]">{value}</p>
       {sub && <p className="mt-0.5 text-[11px] text-[var(--text-4)]">{sub}</p>}
     </div>
   );
+}
+
+// Compact metric inside an account card. Distinct from the top-of-page `Stat`
+// (which is a full bordered tile with an icon) — these sit in a dense grid.
+function CardStat({ label, value, sub }: { label: string; value: string; sub?: string }) {
+  return (
+    <div className="min-w-0">
+      <p className="truncate text-[10px] font-bold uppercase tracking-wide text-[var(--text-5)]">{label}</p>
+      <p className="mt-0.5 truncate text-base font-extrabold tracking-tight text-[var(--text-1)]">{value}</p>
+      {sub && <p className="truncate text-[10px] text-[var(--text-4)]">{sub}</p>}
+    </div>
+  );
+}
+
+function relTime(iso: string | null): string {
+  if (!iso) return "—";
+  const secs = Math.round((Date.now() - new Date(iso).getTime()) / 1000);
+  if (secs < 60) return "just now";
+  if (secs < 3600) return `${Math.floor(secs / 60)}m ago`;
+  if (secs < 86_400) return `${Math.floor(secs / 3600)}h ago`;
+  if (secs < 2_592_000) return `${Math.floor(secs / 86_400)}d ago`;
+  return new Date(iso).toLocaleDateString();
 }
 
 function StatusPill({ status }: { status: string }) {

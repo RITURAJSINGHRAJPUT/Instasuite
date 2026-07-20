@@ -20,6 +20,18 @@ function utcDayKey(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
+// A fresh zero-filled day map for one account, so days with no traffic plot as 0
+// rather than letting the line interpolate over a gap.
+function freshBuckets(start: Date, days: number): Map<string, { inbound: number; outbound: number }> {
+  const m = new Map<string, { inbound: number; outbound: number }>();
+  for (let i = 0; i < days; i++) {
+    const d = new Date(start);
+    d.setUTCDate(start.getUTCDate() + i);
+    m.set(utcDayKey(d), { inbound: 0, outbound: 0 });
+  }
+  return m;
+}
+
 export async function GET(request: NextRequest) {
   const ctx = await getContext();
   if (!ctx) return Response.json({ error: "Unauthorized" }, { status: 401 });
@@ -28,26 +40,18 @@ export async function GET(request: NextRequest) {
   const raw = Number(request.nextUrl.searchParams.get("days") ?? 30);
   const days = Number.isFinite(raw) ? Math.min(MAX_DAYS, Math.max(1, Math.trunc(raw))) : 30;
 
-  // Zero-fill the buckets up front, so days with no traffic plot as 0 rather
-  // than vanishing and letting the line interpolate over a gap.
-  const buckets = new Map<string, { inbound: number; outbound: number }>();
   const today = new Date();
   const start = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()));
   start.setUTCDate(start.getUTCDate() - (days - 1));
 
-  for (let i = 0; i < days; i++) {
-    const d = new Date(start);
-    d.setUTCDate(start.getUTCDate() + i);
-    buckets.set(utcDayKey(d), { inbound: 0, outbound: 0 });
-  }
+  // One zero-filled series PER account — so the Overview can show a section for
+  // each connected account, and an account with no traffic still gets a flat
+  // section rather than disappearing.
+  const perAccount = new Map<string, ReturnType<typeof freshBuckets>>();
+  for (const id of ctx.accountIds) perAccount.set(id, freshBuckets(start, days));
 
   if (ctx.accountIds.length === 0) {
-    return Response.json({
-      days,
-      start: start.toISOString(),
-      series: [...buckets.entries()].map(([date, v]) => ({ date, ...v, total: 0 })),
-      total: 0,
-    });
+    return Response.json({ days, start: start.toISOString(), total: 0, accounts: [] });
   }
 
   // !inner turns the embed into a join so the account filter actually restricts
@@ -62,22 +66,28 @@ export async function GET(request: NextRequest) {
 
   let total = 0;
   for (const row of data ?? []) {
-    const key = utcDayKey(new Date(row.created_at as string));
-    const b = buckets.get(key);
-    if (!b) continue; // future-dated row, or one outside the window
+    // The !inner embed types as object-or-array depending on the query shape.
+    const conv = row.instagram_conversations as
+      | { instagram_account_id: string }
+      | { instagram_account_id: string }[];
+    const accId = Array.isArray(conv) ? conv[0]?.instagram_account_id : conv?.instagram_account_id;
+    const bmap = accId ? perAccount.get(accId) : undefined;
+    if (!bmap) continue;
+    const b = bmap.get(utcDayKey(new Date(row.created_at as string)));
+    if (!b) continue; // future-dated or outside the window
     if (row.role === "user") b.inbound++;
     else b.outbound++;
     total++;
   }
 
-  return Response.json({
-    days,
-    start: start.toISOString(),
-    series: [...buckets.entries()].map(([date, v]) => ({
+  const accounts = [...perAccount.entries()].map(([account_id, bmap]) => {
+    const series = [...bmap.entries()].map(([date, v]) => ({
       date,
       ...v,
       total: v.inbound + v.outbound,
-    })),
-    total,
+    }));
+    return { account_id, total: series.reduce((sum, p) => sum + p.total, 0), series };
   });
+
+  return Response.json({ days, start: start.toISOString(), total, accounts });
 }

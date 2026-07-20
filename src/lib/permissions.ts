@@ -11,6 +11,7 @@
 export const FEATURES = [
   "overview",
   "inbox",
+  "orders",
   "businesses",
   "scripts",
   "settings",
@@ -24,12 +25,14 @@ export type Role = "super_admin" | "admin" | "manager" | "agent" | "client";
 // What each role can reach. super_admin has everything; admin has everything but
 // Users (can't manage teammates); manager runs the day-to-day (no Settings/Admin);
 // agent works the Inbox only; client is the legacy own-scoped tenant.
+// `orders` tracks `overview`: it reads the same overview-gated analytics endpoint,
+// so its viewers must be a subset of overview's or they'd 404 on their own page.
 export const ROLE_CAPABILITIES: Record<Role, Feature[]> = {
-  super_admin: ["overview", "inbox", "businesses", "scripts", "settings", "admin", "users"],
-  admin: ["overview", "inbox", "businesses", "scripts", "settings", "admin"],
-  manager: ["overview", "inbox", "businesses", "scripts"],
+  super_admin: ["overview", "inbox", "orders", "businesses", "scripts", "settings", "admin", "users"],
+  admin: ["overview", "inbox", "orders", "businesses", "scripts", "settings", "admin"],
+  manager: ["overview", "inbox", "orders", "businesses", "scripts"],
   agent: ["inbox"],
-  client: ["overview", "inbox", "businesses", "scripts", "settings"],
+  client: ["overview", "inbox", "orders", "businesses", "scripts", "settings"],
 };
 
 // Staff = roles that operate the OPERATOR's data (everyone except the legacy
@@ -56,6 +59,7 @@ export function can(role: string | null | undefined, feature: Feature): boolean 
 export const FEATURE_ROUTE: Record<Feature, string> = {
   overview: "/dashboard",
   inbox: "/inbox",
+  orders: "/orders",
   businesses: "/businesses",
   scripts: "/scripts",
   settings: "/settings",
@@ -68,6 +72,7 @@ export const FEATURE_ROUTE: Record<Feature, string> = {
 const LANDING_ORDER: Feature[] = [
   "overview",
   "inbox",
+  "orders",
   "businesses",
   "scripts",
   "settings",
