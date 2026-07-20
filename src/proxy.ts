@@ -69,7 +69,14 @@ export const config = {
   // api/leads is deliberately NOT excluded: in solo mode the public "request
   // access" form is gone, so this endpoint is now gated (a session is required).
   // Re-add `api/leads` here to reopen public lead capture for multi-tenant mode.
+  //
+  // The `.*\.(png|...)` clause excludes static image assets in public/ (the logo,
+  // the favicon). Without it the proxy redirects them to /login: the logo request
+  // gets HTML back and renders broken, AND next/image's server-side fetch of the
+  // source 400s. It also broke the logo on the login page itself, since a
+  // logged-out visitor's image request was redirected too. Images in public/ are
+  // inherently public, so gating them was never intended.
   matcher: [
-    "/((?!api/webhook|api/cron|auth/callback|auth/reset|login|privacy|terms|data-deletion|_next/static|_next/image|favicon.ico).+)",
+    "/((?!api/webhook|api/cron|auth/callback|auth/reset|login|privacy|terms|data-deletion|_next/static|_next/image|favicon.ico|.*\\.(?:png|jpe?g|gif|svg|ico|webp|avif)).+)",
   ],
 };

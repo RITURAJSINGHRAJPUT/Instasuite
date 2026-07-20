@@ -1,22 +1,30 @@
-import { MessageSquare } from "lucide-react";
+import Image from "next/image";
 
-// The mark and wordmark were pasted into five files (login, auth/reset, landing,
-// inbox, AppNav), each with its own copy of the same chat-bubble path. One source.
+// The mark and wordmark were pasted into several files, each with its own copy of
+// the same chat-bubble path. One source.
+//
+// The mark is the real brand asset (public/logo1.png) — a transparent PNG, so it's
+// rendered bare with no tile behind it: it already IS the full colourful bubble,
+// and a gradient tile would double up. next/image (optimized) resizes it, so a
+// 32px sidebar mark isn't the 1.4MB original.
 const SIZES = {
-  sm: { tile: "h-8 w-8 rounded-lg", icon: 16, text: "text-sm" },
-  md: { tile: "h-10 w-10 rounded-xl", icon: 20, text: "text-base" },
-  lg: { tile: "h-14 w-14 rounded-2xl", icon: 26, text: "text-lg" },
+  sm: { px: 32, text: "text-sm" },
+  md: { px: 40, text: "text-base" },
+  lg: { px: 56, text: "text-lg" },
 } as const;
 
 export function LogoMark({ size = "sm" }: { size?: keyof typeof SIZES }) {
   const s = SIZES[size];
   return (
-    <div
-      className={`flex flex-shrink-0 items-center justify-center ${s.tile}`}
-      style={{ background: "var(--brand-gradient)" }}
-    >
-      <MessageSquare size={s.icon} color="#fff" strokeWidth={2.5} />
-    </div>
+    <Image
+      src="/logo1.png"
+      alt="Instasuite"
+      width={s.px}
+      height={s.px}
+      priority
+      className="flex-shrink-0"
+      style={{ width: s.px, height: s.px }}
+    />
   );
 }
 
