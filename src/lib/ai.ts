@@ -39,9 +39,17 @@ const FALLBACK_MODELS = [
   "meta-llama/llama-3.2-3b-instruct:free",
 ].filter(Boolean) as string[];
 
-// Without this, a model can narrate its reasoning or add a preamble into the reply.
-const REPLY_GUARD =
-  "Reply with only the message to send to the guest — no preamble, no quotes, no explanation of your reasoning.";
+// Conversation-hygiene rules appended to EVERY tenant's system prompt, for both the
+// Claude path and the OpenRouter fallback (they share the `system` string below). The
+// weaker fallback models otherwise treat each turn fresh — re-asking for details the
+// guest already gave and glitching stray foreign tokens into replies. These rules pull
+// any model back toward tracking state and staying coherent.
+const REPLY_GUARD = [
+  "Reply with only the message to send to the guest — no preamble, no quotes, no explanation of your reasoning.",
+  "Track what the guest has already told you. Never ask again for a detail they have already given (name, date, time, party size, contact, outlet, or order items). Acknowledge what you have and ask only for what is still missing.",
+  "Once you have everything needed to place a reservation or takeaway order, confirm it back to the guest and proceed to the hand-off — do not repeat the request for details.",
+  "Write only in clear, natural English (or the language the guest is writing in). Never insert stray words or characters from an unrelated language mid-message.",
+].join("\n");
 
 export async function getAIResponse(
   messages: ChatMessage[],
