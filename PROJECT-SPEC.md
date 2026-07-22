@@ -335,7 +335,7 @@ network failures throw. Every caller must check `!res.ok || data.error` itself.
 
 `src/lib/ai.ts` — `getAIResponse(messages, { systemPrompt, model? })`.
 
-- **Primary:** Claude, `ANTHROPIC_MODEL || "claude-opus-4-8"`, `max_tokens: 1024`.
+- **Primary:** Claude, `ANTHROPIC_MODEL || "claude-haiku-4-5"`, `max_tokens: 1024`.
 - **Fallback:** OpenRouter, a chain of five free models, tried in order. The loop only
   continues on **429 or 404** and rethrows anything else.
 - `REPLY_GUARD` is appended to every system prompt: *"Reply with only the message to send to
@@ -362,8 +362,8 @@ timeouts, dropped replies. The system got *worse* under load instead of merely s
 
 ### Cost
 
-Hardcoded Opus 4.8 pricing in the webhook: `$5/1M input, $25/1M output`, i.e.
-`(in/1e6)*500 + (out/1e6)*2500` cents. Change the model, change this formula.
+Hardcoded Haiku 4.5 pricing in the webhook: `$1/1M input, $5/1M output`, i.e.
+`(in/1e6)*100 + (out/1e6)*500` cents. Change the model, change this formula.
 
 ---
 
@@ -553,7 +553,7 @@ the users.
 | `INSTAGRAM_REDIRECT_URI` | ✅ | Must match Meta's allow-list exactly |
 | `INSTAGRAM_VERIFY_TOKEN` | ✅ | Webhook handshake |
 | `CRON_SECRET` | ✅ | Bearer token for the refresh job; the route fails closed without it |
-| `ANTHROPIC_MODEL` | — | Defaults `claude-opus-4-8` |
+| `ANTHROPIC_MODEL` | — | Defaults `claude-haiku-4-5` |
 | `OPENROUTER_API_KEY`, `AI_MODEL` | — | Fallback provider |
 | `MAX_CONCURRENT_REPLIES` | — | Defaults `4` |
 

@@ -210,10 +210,10 @@ async function recordUsage(
   ai: Awaited<ReturnType<typeof getAIResponse>>
 ) {
   if (ai.provider === "none") return;
-  // Opus 4.8: $5/1M in, $25/1M out -> cents per token.
+  // Haiku 4.5: $1/1M in, $5/1M out -> cents per token.
   const costCents =
     ai.provider === "claude" && ai.inputTokens != null && ai.outputTokens != null
-      ? (ai.inputTokens / 1_000_000) * 500 + (ai.outputTokens / 1_000_000) * 2500
+      ? (ai.inputTokens / 1_000_000) * 100 + (ai.outputTokens / 1_000_000) * 500
       : 0;
 
   await supabaseAdmin.from("usage_events").insert({

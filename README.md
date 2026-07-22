@@ -35,7 +35,7 @@ businesses → Instagram accounts → conversations, all tenant-scoped.
 | Framework | Next.js 16 (App Router) · React 19 · TypeScript |
 | Styling | Tailwind CSS v4 (CSS-first, light/dark) |
 | Data / Auth | Supabase — Postgres, Auth, Row-Level Security, Realtime |
-| AI | Anthropic Claude (Opus 4.8) via `@anthropic-ai/sdk`, OpenRouter fallback |
+| AI | Anthropic Claude (Haiku 4.5) via `@anthropic-ai/sdk`, OpenRouter fallback |
 | Messaging | Instagram Graph API (Instagram Login) |
 
 ## Roles
@@ -88,7 +88,7 @@ Create `.env.local` (never committed) with:
 |---|---|
 | `SUPABASE_SERVICE_ROLE_KEY` | Service-role key (bypasses RLS — server only) |
 | `ANTHROPIC_API_KEY` | Anthropic API key |
-| `ANTHROPIC_MODEL` | Model id (e.g. `claude-opus-4-8`) |
+| `ANTHROPIC_MODEL` | Model id (e.g. `claude-haiku-4-5`) |
 | `OPENROUTER_API_KEY` / `AI_MODEL` | Optional OpenRouter fallback |
 | `INSTAGRAM_APP_ID` | Meta/Instagram app id (OAuth client id) |
 | `META_APP_SECRET` | The **Instagram** app secret (OAuth client secret + webhook HMAC) |

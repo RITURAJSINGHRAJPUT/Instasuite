@@ -23,7 +23,7 @@ export type AIResult = {
 // share. What must never be module-scope is the system prompt: that is per-tenant
 // and is now always passed in.
 const anthropic = new Anthropic();
-const DEFAULT_CLAUDE_MODEL = process.env.ANTHROPIC_MODEL || "claude-opus-4-8";
+const DEFAULT_CLAUDE_MODEL = process.env.ANTHROPIC_MODEL || "claude-haiku-4-5";
 
 const openrouter = new OpenAI({
   baseURL: "https://openrouter.ai/api/v1",
@@ -39,7 +39,7 @@ const FALLBACK_MODELS = [
   "meta-llama/llama-3.2-3b-instruct:free",
 ].filter(Boolean) as string[];
 
-// Opus with thinking off can otherwise narrate its reasoning into the reply.
+// Without this, a model can narrate its reasoning or add a preamble into the reply.
 const REPLY_GUARD =
   "Reply with only the message to send to the guest — no preamble, no quotes, no explanation of your reasoning.";
 

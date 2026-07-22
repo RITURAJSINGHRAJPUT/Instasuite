@@ -7,10 +7,13 @@ import Image from "next/image";
 // rendered bare with no tile behind it: it already IS the full colourful bubble,
 // and a gradient tile would double up. next/image (optimized) resizes it, so a
 // 32px sidebar mark isn't the 1.4MB original.
+// The mark has transparent padding baked into the PNG, so the visible glyph is
+// noticeably smaller than its box — these run larger than a typical icon size to
+// compensate.
 const SIZES = {
-  sm: { px: 32, text: "text-sm" },
-  md: { px: 40, text: "text-base" },
-  lg: { px: 56, text: "text-lg" },
+  sm: { px: 40, text: "text-sm" },
+  md: { px: 48, text: "text-base" },
+  lg: { px: 68, text: "text-lg" },
 } as const;
 
 export function LogoMark({ size = "sm" }: { size?: keyof typeof SIZES }) {
