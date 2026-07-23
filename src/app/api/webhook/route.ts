@@ -7,6 +7,7 @@ import { getAIResponse } from "@/lib/ai";
 import { resolveAccountByIgId, type ResolvedAccount } from "@/lib/tenant";
 import { checkMessageQuota } from "@/lib/usage";
 import { withSlot } from "@/lib/queue";
+import { detectHandoff, stripHandoff, dedupeKey } from "@/lib/order-detect";
 
 // The reply is generated in after() (see below), and on Vercel that background
 // work is bounded by THIS function's maxDuration — exceed it and the reply is
@@ -151,17 +152,24 @@ async function processMessage(igAccountId: string, messaging: Messaging) {
       { systemPrompt: account.systemPrompt }
     );
 
+    // If the AI appended a reservation/takeaway handoff line, strip it so the guest sees
+    // only the clean confirmation; the order is captured from that line below.
+    const detected = detectHandoff(ai.text);
+    const customerText = detected ? stripHandoff(ai.text) || ai.text : ai.text;
+
     // Reply FROM this tenant's account: the token is the sender identity.
-    await sendInstagramMessage(igsid, ai.text, account.accessToken);
+    await sendInstagramMessage(igsid, customerText, account.accessToken);
 
     await supabaseAdmin.from("instagram_messages").insert({
       conversation_id: conversation.id,
       role: "assistant",
-      content: ai.text,
+      content: customerText,
     });
 
     await touch(conversation.id);
     await recordUsage(account, ai);
+
+    if (detected) await captureOrder(account, conversation, detected);
 
     // Claude couldn't answer (paused key, outage, or refusal): the safe holding message
     // was already sent above — now hand the conversation to a human so staff pick it up
@@ -175,6 +183,33 @@ async function processMessage(igAccountId: string, messaging: Messaging) {
     }
   } catch (error) {
     console.error("Webhook processing error:", error);
+  }
+}
+
+// Persist a captured reservation/takeaway as a pending order row. Guarded so it can never
+// break the reply (already sent above), and swallows the 23505 dedupe collision the same way
+// the message insert does. Staff confirm it later from the Orders page.
+async function captureOrder(
+  account: ResolvedAccount,
+  conversation: { id: string; name?: string | null; username?: string | null },
+  detected: NonNullable<ReturnType<typeof detectHandoff>>
+) {
+  try {
+    const customer =
+      detected.customer || conversation.name || conversation.username || "Guest";
+    const { error } = await supabaseAdmin.from("orders").insert({
+      business_id: account.businessId,
+      conversation_id: conversation.id,
+      kind: detected.kind,
+      customer_name: customer,
+      details: detected.summary,
+      dedupe_key: dedupeKey(detected.kind, conversation.id, detected.line),
+    });
+    if (error && error.code !== "23505") {
+      console.warn("orders insert failed:", error.message);
+    }
+  } catch (err) {
+    console.warn("captureOrder error:", (err as Error).message);
   }
 }
 
