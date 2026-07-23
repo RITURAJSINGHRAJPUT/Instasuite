@@ -57,12 +57,16 @@ export function detectHandoff(reply: string): DetectedOrder | null {
   if (t) {
     const line = t[0].trim();
     const f = parseFields(line);
-    return {
-      kind: "takeaway",
-      line,
-      customer: f["name"] || null,
-      summary: line.replace(/^TAKEAWAY\s*/i, "").trim(),
-    };
+    const summary =
+      [
+        f["outlet"] && `Outlet: ${f["outlet"]}`,
+        f["items"] && `Items: ${f["items"]}`,
+        f["pickup"] && `Pickup: ${f["pickup"]}`,
+        f["contact"] && f["contact"] !== "-" && `Contact: ${f["contact"]}`,
+      ]
+        .filter(Boolean)
+        .join(" · ") || line.replace(/^TAKEAWAY\s*\|?\s*/i, "").trim();
+    return { kind: "takeaway", line, customer: f["name"] || null, summary };
   }
 
   return null;
