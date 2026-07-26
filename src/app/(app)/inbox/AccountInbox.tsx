@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import {
@@ -57,6 +57,18 @@ function formatDate(dateStr: string) {
 function getInitials(name: string | null, igsid: string) {
   if (name) return name.slice(0, 2).toUpperCase();
   return igsid.slice(-2);
+}
+
+// Header for the Ongoing / Completed groups in the conversation list.
+function SectionLabel({ label, count }: { label: string; count: number }) {
+  return (
+    <div className="flex items-center gap-2 border-b border-[var(--border)] bg-[var(--surface-1)] px-4 py-1.5">
+      <span className="text-[10px] font-bold uppercase tracking-wide text-[var(--text-4)]">{label}</span>
+      <span className="rounded-full bg-[var(--surface-2)] px-1.5 py-0.5 text-[9px] font-bold text-[var(--text-4)]">
+        {count}
+      </span>
+    </div>
+  );
 }
 
 export function Avatar({
@@ -123,6 +135,66 @@ export default function AccountInbox({
   const [deleteTarget, setDeleteTarget] = useState<ConversationWithLastMessage | null>(null);
   const [deleting, setDeleting] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Split the list into Ongoing / Completed. A chat is Completed once its latest order's
+  // scheduled time has passed; everything else (upcoming order, an order with no captured
+  // time, or no order at all) stays Ongoing. `now` ticks every 30s so a chat slides from
+  // Ongoing to Completed as its reservation/pickup time passes — no refetch needed.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(t);
+  }, []);
+  const { ongoing, completed } = useMemo(() => {
+    const ong: ConversationWithLastMessage[] = [];
+    const done: ConversationWithLastMessage[] = [];
+    for (const c of conversations) {
+      const at = c.order?.scheduled_at;
+      if (at && new Date(at).getTime() < now) done.push(c);
+      else ong.push(c);
+    }
+    return { ongoing: ong, completed: done };
+  }, [conversations, now]);
+
+  const renderConvRow = (convo: ConversationWithLastMessage) => {
+    const isSelected = selectedId === convo.id;
+    return (
+      <button
+        key={convo.id}
+        onClick={() => setSelectedId(convo.id)}
+        className={`relative w-full px-4 py-3.5 text-left transition-colors ${
+          isSelected ? "bg-[var(--accent-soft)]" : "hover:bg-[var(--surface-1)]"
+        }`}
+      >
+        {isSelected && <div className="absolute left-0 top-0 h-full w-0.5 bg-[var(--accent)]" />}
+        <div className="flex items-center gap-3">
+          <Avatar src={convo.profile_pic} name={convo.name} igsid={convo.igsid} size={36} />
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center justify-between gap-2">
+              <span className="truncate text-[13px] font-bold text-[var(--text-1)]">
+                {convo.name || convo.username || convo.igsid}
+              </span>
+              <span className="flex-shrink-0 text-[10px] text-[var(--text-5)]">
+                {formatTime(convo.updated_at)}
+              </span>
+            </div>
+            <p className="mt-0.5 truncate text-[11px] text-[var(--text-4)]">
+              {convo.last_message || (convo.username ? `@${convo.username}` : "")}
+            </p>
+            <span
+              className={`mt-1.5 inline-block rounded px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide ${
+                convo.mode === "agent"
+                  ? "bg-[var(--accent-soft)] text-[var(--accent)]"
+                  : "bg-[var(--warn-soft)] text-[var(--warn)]"
+              }`}
+            >
+              {convo.mode === "agent" ? "AI handled" : "Human active"}
+            </span>
+          </div>
+        </div>
+      </button>
+    );
+  };
 
   const selected = conversations.find((c) => c.id === selectedId);
 
@@ -251,60 +323,29 @@ export default function AccountInbox({
           style={{ background: "var(--panel-bg)" }}
         >
           <div className="min-h-0 flex-1 overflow-y-auto">
-            {conversations.length === 0 && (
+            {conversations.length === 0 ? (
               <div className="flex h-40 flex-col items-center justify-center gap-2">
                 <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[var(--surface-1)]">
                   <MessageSquare size={18} className="text-[var(--text-5)]" />
                 </div>
                 <p className="text-xs text-[var(--text-5)]">No conversations yet</p>
               </div>
+            ) : (
+              <>
+                <SectionLabel label="Ongoing" count={ongoing.length} />
+                {ongoing.length ? (
+                  ongoing.map(renderConvRow)
+                ) : (
+                  <p className="px-4 py-3 text-[11px] text-[var(--text-5)]">Nothing ongoing.</p>
+                )}
+                <SectionLabel label="Completed" count={completed.length} />
+                {completed.length ? (
+                  completed.map(renderConvRow)
+                ) : (
+                  <p className="px-4 py-3 text-[11px] text-[var(--text-5)]">Nothing completed.</p>
+                )}
+              </>
             )}
-            {conversations.map((convo) => {
-              const isSelected = selectedId === convo.id;
-              return (
-                <button
-                  key={convo.id}
-                  onClick={() => setSelectedId(convo.id)}
-                  className={`relative w-full px-4 py-3.5 text-left transition-colors ${
-                    isSelected ? "bg-[var(--accent-soft)]" : "hover:bg-[var(--surface-1)]"
-                  }`}
-                >
-                  {isSelected && (
-                    <div className="absolute left-0 top-0 h-full w-0.5 bg-[var(--accent)]" />
-                  )}
-                  <div className="flex items-center gap-3">
-                    <Avatar
-                      src={convo.profile_pic}
-                      name={convo.name}
-                      igsid={convo.igsid}
-                      size={36}
-                    />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="truncate text-[13px] font-bold text-[var(--text-1)]">
-                          {convo.name || convo.username || convo.igsid}
-                        </span>
-                        <span className="flex-shrink-0 text-[10px] text-[var(--text-5)]">
-                          {formatTime(convo.updated_at)}
-                        </span>
-                      </div>
-                      <p className="mt-0.5 truncate text-[11px] text-[var(--text-4)]">
-                        {convo.last_message || (convo.username ? `@${convo.username}` : "")}
-                      </p>
-                      <span
-                        className={`mt-1.5 inline-block rounded px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide ${
-                          convo.mode === "agent"
-                            ? "bg-[var(--accent-soft)] text-[var(--accent)]"
-                            : "bg-[var(--warn-soft)] text-[var(--warn)]"
-                        }`}
-                      >
-                        {convo.mode === "agent" ? "AI handled" : "Human active"}
-                      </span>
-                    </div>
-                  </div>
-                </button>
-              );
-            })}
           </div>
         </div>
 

@@ -50,6 +50,25 @@ export async function GET(request: NextRequest) {
     return Response.json({ error: error.message }, { status: 500 });
   }
 
+  // Latest order per conversation, for the Inbox's Ongoing/Completed split. One query for
+  // all conversations (not N+1); orders is service-role only, read here via supabaseAdmin.
+  const convoIds = (conversations || []).map((c) => c.id);
+  const latestOrder = new Map<string, { kind: string; scheduled_at: string | null; status: string }>();
+  if (convoIds.length) {
+    const { data: orders } = await supabaseAdmin
+      .from("orders")
+      .select("conversation_id, kind, scheduled_at, status, created_at")
+      .in("conversation_id", convoIds)
+      .order("created_at", { ascending: false });
+    for (const o of orders ?? []) {
+      // First seen per conversation = the most recent (query is created_at desc).
+      const id = o.conversation_id as string;
+      if (!latestOrder.has(id)) {
+        latestOrder.set(id, { kind: o.kind, scheduled_at: o.scheduled_at, status: o.status });
+      }
+    }
+  }
+
   const withLastMessage = await Promise.all(
     (conversations || []).map(async (convo) => {
       const { data: messages } = await supabaseAdmin
@@ -59,7 +78,11 @@ export async function GET(request: NextRequest) {
         .order("created_at", { ascending: false })
         .limit(1);
 
-      return { ...convo, last_message: messages?.[0]?.content || null };
+      return {
+        ...convo,
+        last_message: messages?.[0]?.content || null,
+        order: latestOrder.get(convo.id) ?? null,
+      };
     })
   );
 

@@ -7,7 +7,7 @@ import { getAIResponse } from "@/lib/ai";
 import { resolveAccountByIgId, type ResolvedAccount } from "@/lib/tenant";
 import { checkMessageQuota } from "@/lib/usage";
 import { withSlot } from "@/lib/queue";
-import { detectHandoff, stripHandoff, dedupeKey } from "@/lib/order-detect";
+import { detectHandoff, detectReview, stripHandoff, dedupeKey } from "@/lib/order-detect";
 
 // The reply is generated in after() (see below), and on Vercel that background
 // work is bounded by THIS function's maxDuration — exceed it and the reply is
@@ -152,10 +152,11 @@ async function processMessage(igAccountId: string, messaging: Messaging) {
       { systemPrompt: account.systemPrompt }
     );
 
-    // If the AI appended a reservation/takeaway handoff line, strip it so the guest sees
-    // only the clean confirmation; the order is captured from that line below.
+    // If the AI appended a reservation/takeaway handoff line — or a REVIEW line for a matter that
+    // needs a human — strip it so the guest sees only the clean reply; the row is captured below.
     const detected = detectHandoff(ai.text);
-    const customerText = detected ? stripHandoff(ai.text) || ai.text : ai.text;
+    const detectedReview = detectReview(ai.text);
+    const customerText = detected || detectedReview ? stripHandoff(ai.text) || ai.text : ai.text;
 
     // Reply FROM this tenant's account: the token is the sender identity.
     await sendInstagramMessage(igsid, customerText, account.accessToken);
@@ -170,12 +171,14 @@ async function processMessage(igAccountId: string, messaging: Messaging) {
     await recordUsage(account, ai);
 
     if (detected) await captureOrder(account, conversation, detected);
+    if (detectedReview) await captureReview(account, conversation, detectedReview);
 
-    // Claude couldn't answer (paused key, outage, or refusal): the safe holding message
-    // was already sent above — now hand the conversation to a human so staff pick it up
-    // and future inbound messages aren't auto-answered (the guard near the top of this
-    // function early-returns on mode === "human"). We never serve weak-model output.
-    if (ai.unavailable) {
+    // Hand the conversation to a human — future inbound messages aren't auto-answered (the guard
+    // near the top of this function early-returns on mode === "human"), so staff pick it up. Two
+    // reasons: (a) Claude couldn't answer (paused key, outage, or refusal) — the safe holding
+    // message was already sent above and we never serve weak-model output; or (b) the AI flagged a
+    // REVIEW matter (collab/complaint/…) that a person must take over.
+    if (ai.unavailable || detectedReview) {
       await supabaseAdmin
         .from("instagram_conversations")
         .update({ mode: "human" })
@@ -203,6 +206,7 @@ async function captureOrder(
       kind: detected.kind,
       customer_name: customer,
       details: detected.summary,
+      scheduled_at: detected.scheduledAt,
       dedupe_key: dedupeKey(detected.kind, conversation.id, detected.line),
     });
     if (error && error.code !== "23505") {
@@ -210,6 +214,33 @@ async function captureOrder(
     }
   } catch (err) {
     console.warn("captureOrder error:", (err as Error).message);
+  }
+}
+
+// Persist a captured REVIEW matter (collab/complaint/billing/event/other) as a pending review row.
+// Same guards as captureOrder: never breaks the reply (already sent), swallows the 23505 dedupe
+// collision. Staff work these from the Review page; the conversation is flipped to human above.
+async function captureReview(
+  account: ResolvedAccount,
+  conversation: { id: string; name?: string | null; username?: string | null },
+  detected: NonNullable<ReturnType<typeof detectReview>>
+) {
+  try {
+    const customer =
+      detected.customer || conversation.name || conversation.username || "Guest";
+    const { error } = await supabaseAdmin.from("review_items").insert({
+      business_id: account.businessId,
+      conversation_id: conversation.id,
+      category: detected.category,
+      customer_name: customer,
+      details: detected.summary,
+      dedupe_key: dedupeKey("review", conversation.id, detected.line),
+    });
+    if (error && error.code !== "23505") {
+      console.warn("review_items insert failed:", error.message);
+    }
+  } catch (err) {
+    console.warn("captureReview error:", (err as Error).message);
   }
 }
 

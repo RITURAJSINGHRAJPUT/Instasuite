@@ -44,6 +44,7 @@ const REPLY_GUARD = [
   "Once you have everything needed to place a reservation or takeaway order, confirm it back to the guest and proceed to the hand-off — do not repeat the request for details.",
   "Write only in clear, natural English (or the language the guest is writing in). Never insert stray words or characters from an unrelated language mid-message.",
   "Don't pre-empt with conditional rules, timing caveats, hours, or disclaimers (e.g. prep delays or cutoff times) — raise a condition only when the guest's actual request triggers it, and answer only what they asked.",
+  "If the guest has an earlier reservation or takeaway in this conversation whose date or pickup time has already passed (compare to the current date & time above), treat their new message as a brand-new request — do not resume, re-confirm, or announce that old order as if it's still active. You may still use earlier messages for the guest's name and preferences, and may reference a past order only if the guest explicitly asks about it.",
 ].join("\n");
 
 // A safe holding-message result. Every non-answer path returns this shape so the caller
@@ -61,7 +62,15 @@ export async function getAIResponse(
   messages: ChatMessage[],
   options: AIOptions
 ): Promise<AIResult> {
-  const system = `${options.systemPrompt}\n\n${REPLY_GUARD}`;
+  // Give the agent date awareness (it otherwise has none) so it can resolve relative dates
+  // the guest mentions and tell when an earlier order's date/time has already passed. IST —
+  // the business's timezone.
+  const nowIst = new Date().toLocaleString("en-IN", {
+    timeZone: "Asia/Kolkata",
+    dateStyle: "full",
+    timeStyle: "short",
+  });
+  const system = `${options.systemPrompt}\n\nCurrent date & time (IST): ${nowIst}.\n\n${REPLY_GUARD}`;
   const claudeModel = options.model || DEFAULT_CLAUDE_MODEL;
 
   // The API rejects a history that opens with an assistant turn, which is reachable

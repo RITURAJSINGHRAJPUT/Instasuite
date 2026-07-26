@@ -12,6 +12,7 @@ export const FEATURES = [
   "overview",
   "inbox",
   "orders",
+  "review",
   "unavailable",
   "businesses",
   "scripts",
@@ -29,11 +30,11 @@ export type Role = "super_admin" | "admin" | "manager" | "agent" | "client";
 // `orders` tracks `overview`: it reads the same overview-gated analytics endpoint,
 // so its viewers must be a subset of overview's or they'd 404 on their own page.
 export const ROLE_CAPABILITIES: Record<Role, Feature[]> = {
-  super_admin: ["overview", "inbox", "orders", "unavailable", "businesses", "scripts", "settings", "admin", "users"],
-  admin: ["overview", "inbox", "orders", "unavailable", "businesses", "scripts", "settings", "admin"],
-  manager: ["overview", "inbox", "orders", "unavailable", "businesses", "scripts"],
+  super_admin: ["overview", "inbox", "orders", "review", "unavailable", "businesses", "scripts", "settings", "admin", "users"],
+  admin: ["overview", "inbox", "orders", "review", "unavailable", "businesses", "scripts", "settings", "admin"],
+  manager: ["overview", "inbox", "orders", "review", "unavailable", "businesses", "scripts"],
   agent: ["inbox"],
-  client: ["overview", "inbox", "orders", "unavailable", "businesses", "scripts", "settings"],
+  client: ["overview", "inbox", "orders", "review", "unavailable", "businesses", "scripts", "settings"],
 };
 
 // Staff = roles that operate the OPERATOR's data (everyone except the legacy
@@ -61,6 +62,7 @@ export const FEATURE_ROUTE: Record<Feature, string> = {
   overview: "/dashboard",
   inbox: "/inbox",
   orders: "/orders",
+  review: "/review",
   unavailable: "/unavailable",
   businesses: "/businesses",
   scripts: "/scripts",
@@ -75,6 +77,7 @@ const LANDING_ORDER: Feature[] = [
   "overview",
   "inbox",
   "orders",
+  "review",
   "unavailable",
   "businesses",
   "scripts",

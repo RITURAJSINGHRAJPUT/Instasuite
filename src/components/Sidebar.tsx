@@ -20,6 +20,7 @@ import {
   ChevronsUpDown,
   ChevronDown,
   Receipt,
+  Flag,
   CircleSlash,
 } from "lucide-react";
 import { createBrowserClient } from "@supabase/ssr";
@@ -46,6 +47,7 @@ const MAIN_NAV: NavItem[] = [
   { href: "/dashboard", label: "Overview", icon: LayoutGrid, feature: "overview" },
   { href: "/inbox", label: "Inbox", icon: Inbox, feature: "inbox" },
   { href: "/orders", label: "Orders", icon: Receipt, feature: "orders" },
+  { href: "/review", label: "Review", icon: Flag, feature: "review" },
   { href: "/unavailable", label: "Unavailable", icon: CircleSlash, feature: "unavailable" },
   { href: "/scripts", label: "AI Scripts", icon: Bot, feature: "scripts" },
 ];
@@ -67,14 +69,18 @@ function NavRow({
   isCollapsed,
   pathname,
   indented = false,
+  badge = 0,
 }: {
   item: NavItem;
   isCollapsed: boolean;
   pathname: string;
   indented?: boolean;
+  /** Notification count shown on this row (e.g. pending orders). 0 hides it. */
+  badge?: number;
 }) {
   const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
   const Icon = item.icon;
+  const badgeText = badge > 99 ? "99+" : String(badge);
   return (
     <Link
       href={item.href}
@@ -94,6 +100,23 @@ function NavRow({
     >
       <Icon size={indented ? 15 : 17} strokeWidth={2.2} />
       {isCollapsed ? <span className="sr-only">{item.label}</span> : item.label}
+      {/* Notification badge: a right-aligned pill when expanded, a small corner
+          badge on the icon when collapsed. Uses the accent colour so it reads as
+          "needs attention" against both the active and inactive row states. */}
+      {badge > 0 &&
+        (isCollapsed ? (
+          <span
+            aria-hidden
+            className="absolute right-1 top-1 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-[var(--accent)] px-1 text-[9px] font-bold leading-none text-[var(--accent-fg)]"
+          >
+            {badgeText}
+          </span>
+        ) : (
+          <span className="ml-auto flex h-5 min-w-[20px] items-center justify-center rounded-full bg-[var(--accent)] px-1.5 text-[10px] font-bold leading-none text-[var(--accent-fg)]">
+            {badgeText}
+          </span>
+        ))}
+      {badge > 0 && <span className="sr-only">({badge} new)</span>}
       {isCollapsed && (
         <span
           role="tooltip"
@@ -120,6 +143,8 @@ export default function Sidebar() {
   const [collapsed, setCollapsed] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [ordersCount, setOrdersCount] = useState(0);
+  const [reviewCount, setReviewCount] = useState(0);
 
   useEffect(() => {
     // Shared: Overview and Settings request this too, and this component sits in
@@ -127,6 +152,47 @@ export default function Sidebar() {
     sharedGet<Usage>("/api/usage").then(setUsage);
     setDark(document.documentElement.getAttribute("data-theme") === "dark");
   }, []);
+
+  // Sidebar badge: how many orders are still pending (unconfirmed) — a new
+  // reservation/takeaway bumps it without a manual refresh. Gated on the capability
+  // so roles without Orders never fetch it. Re-runs on navigation (so it drops
+  // right after you confirm one on the Orders page) and polls every 30s otherwise.
+  useEffect(() => {
+    if (!me?.capabilities?.includes("orders")) return;
+    let cancelled = false;
+    const load = () =>
+      fetch("/api/orders?count=1")
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => {
+          if (!cancelled && d && typeof d.count === "number") setOrdersCount(d.count);
+        })
+        .catch(() => {});
+    load();
+    const id = setInterval(load, 30_000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [me?.capabilities, pathname]);
+
+  // Same pattern for the Review badge: count of pending (not-yet-reviewed) handoff items.
+  useEffect(() => {
+    if (!me?.capabilities?.includes("review")) return;
+    let cancelled = false;
+    const load = () =>
+      fetch("/api/review?count=1")
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => {
+          if (!cancelled && d && typeof d.count === "number") setReviewCount(d.count);
+        })
+        .catch(() => {});
+    load();
+    const id = setInterval(load, 30_000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [me?.capabilities, pathname]);
 
   // Close the mobile drawer on navigation, or it covers the page you just opened.
   // The user menu goes with it — a popover left hanging over the new page is worse.
@@ -245,7 +311,13 @@ export default function Sidebar() {
         className={`flex-1 ${isCollapsed ? "overflow-visible px-2" : "overflow-y-auto px-3"}`}
       >
         {mainLinks.map((l) => (
-          <NavRow key={l.href} item={l} isCollapsed={isCollapsed} pathname={pathname} />
+          <NavRow
+            key={l.href}
+            item={l}
+            isCollapsed={isCollapsed}
+            pathname={pathname}
+            badge={l.feature === "orders" ? ordersCount : l.feature === "review" ? reviewCount : 0}
+          />
         ))}
 
         {settingsMembers.length > 0 &&

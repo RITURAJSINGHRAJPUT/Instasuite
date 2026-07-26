@@ -24,6 +24,15 @@ export interface Message {
   created_at: string;
 }
 
+/** The conversation's most recent captured order, if any — drives the Inbox Ongoing/Completed split. */
+export interface ConversationOrder {
+  kind: "reservation" | "takeaway";
+  /** Reservation/pickup time as a UTC ISO string, or null if the AI didn't emit a parseable time. */
+  scheduled_at: string | null;
+  status: string;
+}
+
 export interface ConversationWithLastMessage extends Conversation {
   last_message: string | null;
+  order?: ConversationOrder | null;
 }
