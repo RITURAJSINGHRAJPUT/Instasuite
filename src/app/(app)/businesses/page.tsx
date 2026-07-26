@@ -3,7 +3,7 @@
 import { Suspense, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Plus, Link2, Unlink, FileText, Loader2, Building2, AlertTriangle, Check } from "lucide-react";
+import { Plus, Link2, Unlink, FileText, Loader2, Building2, AlertTriangle, Check, Store, X, Pencil, Trash2, AtSign } from "lucide-react";
 
 // lucide-react v1 removed every brand logo, so the Instagram mark is inlined.
 // Same paths as the icon the codebase used before lucide was added.
@@ -36,12 +36,16 @@ type Account = {
   script_id: string | null;
 };
 
+type Outlet = { id: string; name: string };
+
 type Business = {
   id: string;
   name: string;
   status: string;
   default_script_id: string | null;
+  public_handle: string | null;
   instagram_accounts: Account[];
+  outlets: Outlet[];
 };
 
 const badge = (status: string) =>
@@ -74,6 +78,20 @@ function BusinessesInner() {
   const [token, setToken] = useState("");
   const [connecting, setConnecting] = useState(false);
 
+  // Inline rename of a brand, and per-business "add outlet" drafts.
+  const [editingName, setEditingName] = useState<string | null>(null);
+  const [nameDraft, setNameDraft] = useState("");
+  const [outletDrafts, setOutletDrafts] = useState<Record<string, string>>({});
+  const [outletBusy, setOutletBusy] = useState(false);
+
+  // Delete-brand confirmation (destructive — cascades to the account, chats, orders, script, outlets).
+  const [deleteFor, setDeleteFor] = useState<Business | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  // Per-brand feedback-handle edits (undefined draft = unchanged from the saved value).
+  const [handleDrafts, setHandleDrafts] = useState<Record<string, string>>({});
+  const [savingHandle, setSavingHandle] = useState(false);
+
   // The OAuth callback can't return JSON to a browser navigation, so it reports
   // back through the query string.
   const igConnected = params.get("ig_connected");
@@ -92,6 +110,16 @@ function BusinessesInner() {
     load();
   }, [load]);
 
+  // Escape closes the delete-confirmation modal (unless a delete is in flight).
+  useEffect(() => {
+    if (!deleteFor) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !deleting) setDeleteFor(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [deleteFor, deleting]);
+
   async function createBusiness() {
     if (!newName.trim()) return;
     setError(null);
@@ -103,6 +131,76 @@ function BusinessesInner() {
     const data = await res.json();
     if (!res.ok) return setError(data?.error || "Couldn't create the business.");
     setNewName("");
+    load();
+  }
+
+  async function renameBusiness(id: string) {
+    const name = nameDraft.trim();
+    if (!name) return;
+    setError(null);
+    const res = await fetch(`/api/businesses/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return setError(data?.error || "Couldn't rename that business.");
+    setEditingName(null);
+    load();
+  }
+
+  async function addOutlet(businessId: string) {
+    const name = (outletDrafts[businessId] || "").trim();
+    if (!name || outletBusy) return;
+    setOutletBusy(true);
+    setError(null);
+    const res = await fetch(`/api/businesses/${businessId}/outlets`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+    const data = await res.json().catch(() => ({}));
+    setOutletBusy(false);
+    if (!res.ok) return setError(data?.error || "Couldn't add that outlet.");
+    setOutletDrafts((d) => ({ ...d, [businessId]: "" }));
+    load();
+  }
+
+  async function removeOutlet(businessId: string, outletId: string) {
+    await fetch(`/api/businesses/${businessId}/outlets/${outletId}`, { method: "DELETE" });
+    load();
+  }
+
+  async function saveHandle(businessId: string) {
+    const draft = handleDrafts[businessId];
+    if (draft === undefined || savingHandle) return;
+    setSavingHandle(true);
+    setError(null);
+    const res = await fetch(`/api/businesses/${businessId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ public_handle: draft.trim() }),
+    });
+    const data = await res.json().catch(() => ({}));
+    setSavingHandle(false);
+    if (!res.ok) return setError(data?.error || "Couldn't save the handle.");
+    setHandleDrafts((d) => {
+      const next = { ...d };
+      delete next[businessId];
+      return next;
+    });
+    load();
+  }
+
+  async function deleteBusiness(id: string) {
+    if (deleting) return;
+    setDeleting(true);
+    setError(null);
+    const res = await fetch(`/api/businesses/${id}`, { method: "DELETE" });
+    const data = await res.json().catch(() => ({}));
+    setDeleting(false);
+    if (!res.ok) return setError(data?.error || "Couldn't delete that business.");
+    setDeleteFor(null);
     load();
   }
 
@@ -203,7 +301,41 @@ function BusinessesInner() {
           <div key={b.id} className="rounded-2xl border border-[var(--border)] bg-[var(--panel-bg)] p-5">
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
-                <h2 className="truncate text-[15px] font-bold text-[var(--text-1)]">{b.name}</h2>
+                {editingName === b.id ? (
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      value={nameDraft}
+                      onChange={(e) => setNameDraft(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") renameBusiness(b.id);
+                        if (e.key === "Escape") setEditingName(null);
+                      }}
+                      autoFocus
+                      aria-label="Business name"
+                      className="min-w-0 rounded-md border border-[var(--border-strong)] bg-[var(--surface-1)] px-2 py-1 text-[15px] font-bold text-[var(--text-1)] focus:border-[var(--accent)] focus:outline-none"
+                    />
+                    <button onClick={() => renameBusiness(b.id)} aria-label="Save name" className="text-[var(--ok)] hover:opacity-80">
+                      <Check size={15} />
+                    </button>
+                    <button onClick={() => setEditingName(null)} aria-label="Cancel rename" className="text-[var(--text-4)] hover:text-[var(--text-2)]">
+                      <X size={15} />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-1.5">
+                    <h2 className="truncate text-[15px] font-bold text-[var(--text-1)]">{b.name}</h2>
+                    <button
+                      onClick={() => {
+                        setEditingName(b.id);
+                        setNameDraft(b.name);
+                      }}
+                      aria-label="Rename business"
+                      className="flex-shrink-0 text-[var(--text-5)] transition-colors hover:text-[var(--text-2)]"
+                    >
+                      <Pencil size={12} />
+                    </button>
+                  </div>
+                )}
                 <p className="text-[11px] text-[var(--text-4)]">
                   {b.instagram_accounts?.length ?? 0} Instagram account
                   {(b.instagram_accounts?.length ?? 0) === 1 ? "" : "s"}
@@ -224,6 +356,14 @@ function BusinessesInner() {
                     Edit script
                   </Link>
                 )}
+                <button
+                  onClick={() => setDeleteFor(b)}
+                  aria-label={`Delete ${b.name}`}
+                  className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[12px] font-semibold text-[var(--text-4)] transition-colors hover:bg-[var(--danger-soft)] hover:text-[var(--danger)]"
+                >
+                  <Trash2 size={12} />
+                  Delete
+                </button>
               </div>
             </div>
 
@@ -315,9 +455,130 @@ function BusinessesInner() {
                 </div>
               )}
             </div>
+
+            {/* Outlets — the structured list the Unavailable page turns into a dropdown. */}
+            <div className="mt-4 border-t border-[var(--border)] pt-4">
+              <div className="mb-2 flex items-center gap-1.5">
+                <Store size={13} className="text-[var(--text-4)]" />
+                <p className="text-[11px] font-bold uppercase tracking-wider text-[var(--text-5)]">Outlets</p>
+              </div>
+
+              <div className="flex flex-wrap gap-1.5">
+                {(b.outlets ?? []).map((o) => (
+                  <span
+                    key={o.id}
+                    className="flex items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--surface-1)] px-2.5 py-1 text-[11px] font-semibold text-[var(--text-2)]"
+                  >
+                    {o.name}
+                    <button
+                      onClick={() => removeOutlet(b.id, o.id)}
+                      aria-label={`Remove ${o.name}`}
+                      className="text-[var(--text-5)] transition-colors hover:text-[var(--danger)]"
+                    >
+                      <X size={11} />
+                    </button>
+                  </span>
+                ))}
+                {(b.outlets?.length ?? 0) === 0 && (
+                  <span className="text-[11px] text-[var(--text-5)]">No outlets yet.</span>
+                )}
+              </div>
+
+              <div className="mt-2 flex gap-2">
+                <input
+                  value={outletDrafts[b.id] || ""}
+                  onChange={(e) => setOutletDrafts((d) => ({ ...d, [b.id]: e.target.value }))}
+                  onKeyDown={(e) => e.key === "Enter" && addOutlet(b.id)}
+                  placeholder="Add outlet (e.g. Piplod, Surat)"
+                  className="flex-1 rounded-lg border border-[var(--border-strong)] bg-[var(--surface-1)] px-3 py-1.5 text-xs text-[var(--text-1)] placeholder:text-[var(--text-6)] focus:border-[var(--accent)] focus:outline-none"
+                />
+                <button
+                  onClick={() => addOutlet(b.id)}
+                  disabled={!(outletDrafts[b.id] || "").trim() || outletBusy}
+                  className="flex items-center gap-1 rounded-lg bg-[var(--accent)] px-3 py-1.5 text-xs font-bold text-[var(--accent-fg)] transition-colors hover:bg-[var(--accent-hover)] disabled:opacity-40"
+                >
+                  <Plus size={12} />
+                  Add
+                </button>
+              </div>
+            </div>
+
+            {/* Feedback handle — the public @handle tagged in the post-dining thank-you DM. */}
+            <div className="mt-4 border-t border-[var(--border)] pt-4">
+              <div className="mb-2 flex items-center gap-1.5">
+                <AtSign size={13} className="text-[var(--text-4)]" />
+                <p className="text-[11px] font-bold uppercase tracking-wider text-[var(--text-5)]">
+                  Feedback handle
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <input
+                  value={handleDrafts[b.id] ?? b.public_handle ?? ""}
+                  onChange={(e) => setHandleDrafts((d) => ({ ...d, [b.id]: e.target.value }))}
+                  onKeyDown={(e) => e.key === "Enter" && saveHandle(b.id)}
+                  placeholder="@yourbrand"
+                  className="flex-1 rounded-lg border border-[var(--border-strong)] bg-[var(--surface-1)] px-3 py-1.5 text-xs text-[var(--text-1)] placeholder:text-[var(--text-6)] focus:border-[var(--accent)] focus:outline-none"
+                />
+                <button
+                  onClick={() => saveHandle(b.id)}
+                  disabled={handleDrafts[b.id] === undefined || savingHandle}
+                  className="rounded-lg bg-[var(--accent)] px-3 py-1.5 text-xs font-bold text-[var(--accent-fg)] transition-colors hover:bg-[var(--accent-hover)] disabled:opacity-40"
+                >
+                  Save
+                </button>
+              </div>
+              <p className="mt-1 text-[11px] text-[var(--text-5)]">
+                Tagged in the thank-you DM sent after a reservation.
+              </p>
+            </div>
           </div>
         ))}
       </div>
+
+      {deleteFor && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--overlay)] p-4 backdrop-blur-sm"
+          onClick={() => !deleting && setDeleteFor(null)}
+        >
+          <div
+            className="w-full max-w-[440px] rounded-2xl border border-[var(--border-strong)] bg-[var(--modal-bg)] p-5 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start gap-3">
+              <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-[var(--danger-soft)]">
+                <Trash2 size={16} className="text-[var(--danger)]" />
+              </div>
+              <div className="min-w-0">
+                <h3 className="text-[15px] font-bold text-[var(--text-1)]">
+                  Delete {deleteFor.name}?
+                </h3>
+                <p className="mt-1 text-[12.5px] leading-relaxed text-[var(--text-3)]">
+                  This permanently removes the brand and everything under it — its connected Instagram
+                  account{(deleteFor.instagram_accounts?.length ?? 0) === 1 ? "" : "s"}, all conversations,
+                  orders and reviews, its script, and its outlets. This can&apos;t be undone.
+                </p>
+              </div>
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                onClick={() => setDeleteFor(null)}
+                disabled={deleting}
+                className="rounded-lg px-3.5 py-2 text-[13px] font-bold text-[var(--text-3)] transition-colors hover:bg-[var(--surface-1)] disabled:opacity-40"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => deleteBusiness(deleteFor.id)}
+                disabled={deleting}
+                className="flex items-center gap-1.5 rounded-lg bg-[var(--danger)] px-4 py-2 text-[13px] font-bold text-white transition-opacity hover:opacity-90 disabled:opacity-40"
+              >
+                {deleting ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
+                Delete brand
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

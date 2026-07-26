@@ -72,10 +72,64 @@ function parseIstToUtc(at: string | undefined): string | null {
   const m = at.match(/^\s*(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/);
   if (!m) return null;
   const [, y, mo, d, h, mi] = m;
-  // IST = UTC+5:30 — subtract to get the UTC instant of that wall-clock time.
-  const utcMs = Date.UTC(+y, +mo - 1, +d, +h, +mi) - 5.5 * 3600 * 1000;
-  const dt = new Date(utcMs);
+  return istToUtcIso(+y, +mo, +d, +h, +mi);
+}
+
+// An IST wall-clock (Y/M/D H:M) → the UTC ISO instant. IST = UTC+5:30, so subtract 5.5h.
+function istToUtcIso(y: number, mo: number, d: number, h: number, mi: number): string | null {
+  const dt = new Date(Date.UTC(y, mo - 1, d, h, mi) - 5.5 * 3600 * 1000);
   return isNaN(dt.getTime()) ? null : dt.toISOString();
+}
+
+// Today's date in IST (used as the base date for a takeaway pickup, which is same-day).
+function istToday(): { y: number; mo: number; d: number } {
+  const ist = new Date(Date.now() + 5.5 * 3600 * 1000);
+  return { y: ist.getUTCFullYear(), mo: ist.getUTCMonth() + 1, d: ist.getUTCDate() };
+}
+
+// Parse a wall-clock time ("1:35 PM", "1:35pm", "13:35", "7 PM") into 24h. Null if unparseable.
+function parseClock(str: string | undefined): { h: number; m: number } | null {
+  if (!str) return null;
+  const m = str.match(/(\d{1,2})(?:[:.](\d{2}))?\s*(a\.?m\.?|p\.?m\.?)?/i);
+  if (!m) return null;
+  let h = parseInt(m[1], 10);
+  const min = m[2] ? parseInt(m[2], 10) : 0;
+  const ap = m[3]?.toLowerCase().replace(/\./g, "");
+  if (ap === "pm" && h < 12) h += 12;
+  if (ap === "am" && h === 12) h = 0;
+  return h > 23 || min > 59 ? null : { h, m: min };
+}
+
+const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+
+// Parse an ABSOLUTE date ("2026-07-30", "30 Jul", "30 Jul 2026", "Jul 30"). Null for anything vague
+// ("today", "Saturday", blank) — a reservation with no real date must not be guessed onto today.
+function parseAbsDate(str: string | undefined): { y: number; mo: number; d: number } | null {
+  if (!str) return null;
+  const s = str.trim();
+  let m = s.match(/(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return { y: +m[1], mo: +m[2], d: +m[3] };
+  m = s.match(/(\d{1,2})\s*(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s*(\d{4})?/i);
+  if (m) return { y: m[3] ? +m[3] : istToday().y, mo: MONTHS.indexOf(m[2].toLowerCase()) + 1, d: +m[1] };
+  m = s.match(/(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s*(\d{1,2})(?:\s*,?\s*(\d{4}))?/i);
+  if (m) return { y: m[3] ? +m[3] : istToday().y, mo: MONTHS.indexOf(m[1].toLowerCase()) + 1, d: +m[2] };
+  return null;
+}
+
+// Fallback when the AI omits the structured `At:` field: derive scheduled_at from the fields the script
+// already emits. Takeaway = Pickup time on today's IST date (same-day). Reservation = Time + an ABSOLUTE
+// Date only (never assume today for a booking, or an upcoming reservation would wrongly "complete").
+function deriveScheduledAt(kind: OrderKind, f: Record<string, string>): string | null {
+  if (kind === "takeaway") {
+    const t = parseClock(f["pickup"]);
+    if (!t) return null;
+    const { y, mo, d } = istToday();
+    return istToUtcIso(y, mo, d, t.h, t.m);
+  }
+  const t = parseClock(f["time"]);
+  const date = parseAbsDate(f["date"]);
+  if (!t || !date) return null;
+  return istToUtcIso(date.y, date.mo, date.d, t.h, t.m);
 }
 
 export function detectHandoff(reply: string): DetectedOrder | null {
@@ -93,7 +147,7 @@ export function detectHandoff(reply: string): DetectedOrder | null {
       ]
         .filter(Boolean)
         .join(" · ") || line.replace(/^RESERVATION\s*\|?\s*/i, "").trim();
-    return { kind: "reservation", line, customer: f["name"] || null, summary, scheduledAt: parseIstToUtc(f["at"]) };
+    return { kind: "reservation", line, customer: f["name"] || null, summary, scheduledAt: parseIstToUtc(f["at"]) ?? deriveScheduledAt("reservation", f) };
   }
 
   const t = reply.match(TAKEAWAY_RE);
@@ -109,7 +163,7 @@ export function detectHandoff(reply: string): DetectedOrder | null {
       ]
         .filter(Boolean)
         .join(" · ") || line.replace(/^TAKEAWAY\s*\|?\s*/i, "").trim();
-    return { kind: "takeaway", line, customer: f["name"] || null, summary, scheduledAt: parseIstToUtc(f["at"]) };
+    return { kind: "takeaway", line, customer: f["name"] || null, summary, scheduledAt: parseIstToUtc(f["at"]) ?? deriveScheduledAt("takeaway", f) };
   }
 
   return null;
