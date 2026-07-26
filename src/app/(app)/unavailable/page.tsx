@@ -72,8 +72,34 @@ function ScopeToggle({ scope, setScope }: { scope: Scope; setScope: (s: Scope) =
 
 const INPUT =
   "rounded-xl border border-[var(--border-strong)] bg-[var(--surface-1)] px-4 py-2.5 text-base text-[var(--text-1)] placeholder:text-[var(--text-6)] focus:border-[var(--accent)] focus:outline-none md:text-sm";
-const SMALL_INPUT =
-  "min-w-0 flex-1 rounded-lg border border-[var(--border-strong)] bg-[var(--surface-1)] px-2.5 py-1.5 text-xs text-[var(--text-1)] placeholder:text-[var(--text-6)] focus:border-[var(--accent)] focus:outline-none";
+
+// A labelled step in the add-form, so the flow reads Brand → Outlet → … top to bottom.
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <p className="mb-1 text-[11px] font-bold uppercase tracking-wider text-[var(--text-5)]">{label}</p>
+      {children}
+    </div>
+  );
+}
+
+// Shared brand selector (only meaningful with >1 brand) + the outlet dropdown, reused by both columns.
+function BrandSelect({ businesses, businessId, setBusinessId }: ColProps) {
+  return (
+    <select
+      value={businessId}
+      onChange={(e) => setBusinessId(e.target.value)}
+      aria-label="Brand"
+      className={`w-full ${INPUT}`}
+    >
+      {businesses.map((b) => (
+        <option key={b.id} value={b.id}>
+          {b.name}
+        </option>
+      ))}
+    </select>
+  );
+}
 
 type ColProps = {
   businesses: Biz[];
@@ -213,69 +239,67 @@ function DishColumn({ businesses, businessId, setBusinessId }: ColProps) {
       count={rows.length}
     >
       <div className="rounded-2xl border border-[var(--border)] bg-[var(--panel-bg)] p-4">
-        <div className="flex flex-col gap-2">
-          <input
-            value={dish}
-            onChange={(e) => setDish(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && add()}
-            placeholder="Dish (e.g. Truffle Pizza)"
-            className={`w-full ${INPUT}`}
-          />
-          <select
-            value={outlet}
-            onChange={(e) => setOutlet(e.target.value)}
-            aria-label="Outlet"
-            className={`w-full ${INPUT}`}
-          >
-            <option value="">All outlets</option>
-            {outlets.map((o) => (
-              <option key={o.id} value={o.name}>
-                {o.name}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className="mt-2 flex flex-wrap items-center gap-2">
-          <ScopeToggle scope={scope} setScope={setScope} />
-          {scope === "custom" && (
-            <input
-              type="datetime-local"
-              value={until}
-              onChange={(e) => setUntil(e.target.value)}
-              className="rounded-lg border border-[var(--border-strong)] bg-[var(--surface-1)] px-2.5 py-1.5 text-xs text-[var(--text-1)] focus:border-[var(--accent)] focus:outline-none"
-            />
-          )}
+        <div className="flex flex-col gap-3">
           {showBiz && (
+            <Field label="Brand">
+              <BrandSelect businesses={businesses} businessId={businessId} setBusinessId={setBusinessId} />
+            </Field>
+          )}
+          <Field label="Outlet">
             <select
-              value={businessId}
-              onChange={(e) => setBusinessId(e.target.value)}
-              aria-label="Business"
-              className="rounded-lg border border-[var(--border-strong)] bg-[var(--surface-1)] px-2.5 py-1.5 text-xs font-semibold text-[var(--text-2)] focus:border-[var(--accent)] focus:outline-none"
+              value={outlet}
+              onChange={(e) => setOutlet(e.target.value)}
+              aria-label="Outlet"
+              className={`w-full ${INPUT}`}
             >
-              {businesses.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.name}
+              <option value="">All outlets</option>
+              {outlets.map((o) => (
+                <option key={o.id} value={o.name}>
+                  {o.name}
                 </option>
               ))}
             </select>
-          )}
-          <input
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && add()}
-            placeholder="Note (optional)"
-            className={SMALL_INPUT}
-          />
-          <button
-            onClick={add}
-            disabled={!canSubmit}
-            className="flex items-center gap-1.5 rounded-lg bg-[var(--accent)] px-4 py-2 text-xs font-bold text-[var(--accent-fg)] transition-colors hover:bg-[var(--accent-hover)] disabled:opacity-40"
-          >
-            <Plus size={13} />
-            Add
-          </button>
+          </Field>
+          <Field label="Dish">
+            <input
+              value={dish}
+              onChange={(e) => setDish(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && add()}
+              placeholder="e.g. Truffle Pizza"
+              className={`w-full ${INPUT}`}
+            />
+          </Field>
+          <Field label="Unavailable for">
+            <div className="flex flex-wrap items-center gap-2">
+              <ScopeToggle scope={scope} setScope={setScope} />
+              {scope === "custom" && (
+                <input
+                  type="datetime-local"
+                  value={until}
+                  onChange={(e) => setUntil(e.target.value)}
+                  className="rounded-lg border border-[var(--border-strong)] bg-[var(--surface-1)] px-2.5 py-1.5 text-xs text-[var(--text-1)] focus:border-[var(--accent)] focus:outline-none"
+                />
+              )}
+            </div>
+          </Field>
+          <Field label="Note (optional)">
+            <input
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && add()}
+              placeholder="e.g. back tomorrow"
+              className={`w-full ${INPUT}`}
+            />
+          </Field>
         </div>
+        <button
+          onClick={add}
+          disabled={!canSubmit}
+          className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-xl bg-[var(--accent)] px-4 py-2.5 text-sm font-bold text-[var(--accent-fg)] transition-colors hover:bg-[var(--accent-hover)] disabled:opacity-40"
+        >
+          <Plus size={14} />
+          Add
+        </button>
       </div>
 
       {error && (
@@ -399,63 +423,61 @@ function OutletColumn({ businesses, businessId, setBusinessId }: ColProps) {
       count={rows.length}
     >
       <div className="rounded-2xl border border-[var(--border)] bg-[var(--panel-bg)] p-4">
-        <select
-          value={outlet}
-          onChange={(e) => setOutlet(e.target.value)}
-          aria-label="Outlet"
-          disabled={outlets.length === 0}
-          className={`w-full ${INPUT} disabled:opacity-60`}
-        >
-          <option value="" disabled>
-            {outlets.length ? "Select an outlet…" : "No outlets — add on the Businesses page"}
-          </option>
-          {outlets.map((o) => (
-            <option key={o.id} value={o.name}>
-              {o.name}
-            </option>
-          ))}
-        </select>
-
-        <div className="mt-2 flex flex-wrap items-center gap-2">
-          <ScopeToggle scope={scope} setScope={setScope} />
-          {scope === "custom" && (
-            <input
-              type="datetime-local"
-              value={until}
-              onChange={(e) => setUntil(e.target.value)}
-              className="rounded-lg border border-[var(--border-strong)] bg-[var(--surface-1)] px-2.5 py-1.5 text-xs text-[var(--text-1)] focus:border-[var(--accent)] focus:outline-none"
-            />
-          )}
+        <div className="flex flex-col gap-3">
           {showBiz && (
+            <Field label="Brand">
+              <BrandSelect businesses={businesses} businessId={businessId} setBusinessId={setBusinessId} />
+            </Field>
+          )}
+          <Field label="Outlet">
             <select
-              value={businessId}
-              onChange={(e) => setBusinessId(e.target.value)}
-              aria-label="Business"
-              className="rounded-lg border border-[var(--border-strong)] bg-[var(--surface-1)] px-2.5 py-1.5 text-xs font-semibold text-[var(--text-2)] focus:border-[var(--accent)] focus:outline-none"
+              value={outlet}
+              onChange={(e) => setOutlet(e.target.value)}
+              aria-label="Outlet"
+              disabled={outlets.length === 0}
+              className={`w-full ${INPUT} disabled:opacity-60`}
             >
-              {businesses.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.name}
+              <option value="" disabled>
+                {outlets.length ? "Select an outlet…" : "No outlets — add on the Businesses page"}
+              </option>
+              {outlets.map((o) => (
+                <option key={o.id} value={o.name}>
+                  {o.name}
                 </option>
               ))}
             </select>
-          )}
-          <input
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && add()}
-            placeholder="Note (optional)"
-            className={SMALL_INPUT}
-          />
-          <button
-            onClick={add}
-            disabled={!canSubmit}
-            className="flex items-center gap-1.5 rounded-lg bg-[var(--accent)] px-4 py-2 text-xs font-bold text-[var(--accent-fg)] transition-colors hover:bg-[var(--accent-hover)] disabled:opacity-40"
-          >
-            <Plus size={13} />
-            Add
-          </button>
+          </Field>
+          <Field label="Closed for">
+            <div className="flex flex-wrap items-center gap-2">
+              <ScopeToggle scope={scope} setScope={setScope} />
+              {scope === "custom" && (
+                <input
+                  type="datetime-local"
+                  value={until}
+                  onChange={(e) => setUntil(e.target.value)}
+                  className="rounded-lg border border-[var(--border-strong)] bg-[var(--surface-1)] px-2.5 py-1.5 text-xs text-[var(--text-1)] focus:border-[var(--accent)] focus:outline-none"
+                />
+              )}
+            </div>
+          </Field>
+          <Field label="Note (optional)">
+            <input
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && add()}
+              placeholder="e.g. staff shortage"
+              className={`w-full ${INPUT}`}
+            />
+          </Field>
         </div>
+        <button
+          onClick={add}
+          disabled={!canSubmit}
+          className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-xl bg-[var(--accent)] px-4 py-2.5 text-sm font-bold text-[var(--accent-fg)] transition-colors hover:bg-[var(--accent-hover)] disabled:opacity-40"
+        >
+          <Plus size={14} />
+          Add
+        </button>
       </div>
 
       {error && (
