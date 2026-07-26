@@ -10,10 +10,16 @@ import { sendInstagramMessage } from "@/lib/instagram";
 // resolveAccountByIgId for the account's token to send FROM.
 
 function confirmationText(kind: string, details: string): string {
-  const d = details?.trim() ? ` ${details.trim()}.` : "";
+  // details is the ` · `-joined summary from order-detect.ts — split it back into one bulleted
+  // line per field, with a blank line above/below the block. Empty details → a single space so
+  // the header and closing line still read as one sentence.
+  const parts = details?.trim()
+    ? details.trim().split(" · ").map((s) => `· ${s.trim()}`).join("\n")
+    : "";
+  const block = parts ? `\n\n${parts}\n\n` : " ";
   return kind === "reservation"
-    ? `✅ Your reservation is confirmed!${d} We look forward to welcoming you — see you soon!`
-    : `✅ Your order is confirmed!${d} We'll have it ready — see you at pickup!`;
+    ? `✅ Your reservation is confirmed!${block}We look forward to welcoming you — see you soon!`
+    : `✅ Your order is confirmed!${block}We'll have it ready — see you at pickup!`;
 }
 
 export async function POST(_r: NextRequest, { params }: { params: Promise<{ id: string }> }) {
