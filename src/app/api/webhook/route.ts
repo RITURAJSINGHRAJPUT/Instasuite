@@ -145,10 +145,15 @@ async function processMessage(igAccountId: string, messaging: Messaging) {
 
     // This tenant's script — not a module-level constant.
     const ai = await getAIResponse(
-      (history || []).map((m) => ({
-        role: m.role as "user" | "assistant",
-        content: m.content,
-      })),
+      (history || [])
+        .map((m) => ({
+          role: m.role as "user" | "assistant",
+          // Never feed a raw handoff line back to the model — a previously-leaked one in the history
+          // makes it echo the same order every turn (a loop). Strip it from assistant turns; a turn
+          // that was ONLY a handoff line becomes empty and is dropped below.
+          content: m.role === "assistant" ? stripHandoff(m.content).trim() : m.content,
+        }))
+        .filter((m) => m.content.length > 0),
       { systemPrompt: account.systemPrompt }
     );
 
@@ -156,7 +161,12 @@ async function processMessage(igAccountId: string, messaging: Messaging) {
     // needs a human — strip it so the guest sees only the clean reply; the row is captured below.
     const detected = detectHandoff(ai.text);
     const detectedReview = detectReview(ai.text);
-    const customerText = detected || detectedReview ? stripHandoff(ai.text) || ai.text : ai.text;
+    const stripped = (detected || detectedReview ? stripHandoff(ai.text) : ai.text).trim();
+    // NEVER leak the raw internal handoff line to the guest. If stripping leaves nothing (the model
+    // replied with only the note), send a safe line instead of the raw grammar — and this clean text
+    // is what gets stored below, so the history stays uncontaminated.
+    const customerText =
+      stripped || "Thanks! I've noted that — our team will confirm and follow up shortly. 🙌";
 
     // Reply FROM this tenant's account: the token is the sender identity.
     await sendInstagramMessage(igsid, customerText, account.accessToken);
