@@ -7,7 +7,13 @@ import { getAIResponse } from "@/lib/ai";
 import { resolveAccountByIgId, type ResolvedAccount } from "@/lib/tenant";
 import { checkMessageQuota } from "@/lib/usage";
 import { withSlot } from "@/lib/queue";
-import { detectHandoff, detectReview, stripHandoff, dedupeKey } from "@/lib/order-detect";
+import {
+  detectHandoff,
+  detectReview,
+  stripHandoff,
+  dedupeKey,
+  refersToPastOrder,
+} from "@/lib/order-detect";
 
 // The reply is generated in after() (see below), and on Vercel that background
 // work is bounded by THIS function's maxDuration — exceed it and the reply is
@@ -136,12 +142,23 @@ async function processMessage(igAccountId: string, messaging: Messaging) {
       return;
     }
 
-    const { data: history } = await supabaseAdmin
+    // Fresh start after an order: once a reservation/takeaway is captured we stamp
+    // `context_reset_at` (below), and from then on the AI is fed ONLY the messages after that
+    // point — the finished order is hidden so the AI can't resume or re-confirm it. The one
+    // exception is when the guest clearly asks about a past order: then we lift the filter for
+    // this single turn so the AI has the full transcript to answer from.
+    const resetAt = (conversation as { context_reset_at?: string | null }).context_reset_at ?? null;
+    const wantsPast = refersToPastOrder(text);
+
+    let historyQuery = supabaseAdmin
       .from("instagram_messages")
       .select("role, content")
       .eq("conversation_id", conversation.id)
       .order("created_at", { ascending: true })
       .limit(20);
+    if (resetAt && !wantsPast) historyQuery = historyQuery.gt("created_at", resetAt);
+
+    const { data: history } = await historyQuery;
 
     // This tenant's script — not a module-level constant.
     const ai = await getAIResponse(
@@ -171,16 +188,29 @@ async function processMessage(igAccountId: string, messaging: Messaging) {
     // Reply FROM this tenant's account: the token is the sender identity.
     await sendInstagramMessage(igsid, customerText, account.accessToken);
 
-    await supabaseAdmin.from("instagram_messages").insert({
-      conversation_id: conversation.id,
-      role: "assistant",
-      content: customerText,
-    });
+    const { data: assistantMsg } = await supabaseAdmin
+      .from("instagram_messages")
+      .insert({
+        conversation_id: conversation.id,
+        role: "assistant",
+        content: customerText,
+      })
+      .select("created_at")
+      .single<{ created_at: string }>();
 
     await touch(conversation.id);
     await recordUsage(account, ai);
 
-    if (detected) await captureOrder(account, conversation, detected);
+    if (detected) {
+      await captureOrder(account, conversation, detected);
+      // Fresh-start boundary: hide everything up to and including this confirmation from future AI
+      // turns. Using the confirmation message's own DB timestamp (with the strict `>` filter above)
+      // keeps the cut exact regardless of app-vs-DB clock skew. Covers reservations AND takeaways.
+      await supabaseAdmin
+        .from("instagram_conversations")
+        .update({ context_reset_at: assistantMsg?.created_at ?? new Date().toISOString() })
+        .eq("id", conversation.id);
+    }
     if (detectedReview) await captureReview(account, conversation, detectedReview);
 
     // Hand the conversation to a human — future inbound messages aren't auto-answered (the guard

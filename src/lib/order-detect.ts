@@ -202,3 +202,22 @@ export function dedupeKey(kind: string, conversationId: string, line: string): s
   const hash = crypto.createHash("sha1").update(line).digest("hex");
   return `${kind}:${conversationId}:${hash}`;
 }
+
+// After an order is placed we hide the pre-order transcript from the AI (see the webhook's history
+// fetch). This decides the ONE exception: does the guest's message clearly refer back to an existing
+// order? If so, the webhook shows the full history for that turn so the AI can answer. Kept
+// conservative — only unambiguous "about a past order" phrasings, not any mention of the words.
+const PAST_ORDER_RES = [
+  /\b(my|the|that|this) (order|reservation|booking|table|pickup|takeaway)\b/i,
+  /\b(cancel|change|modify|update|reschedule|move|edit|amend)\b[^.?!]*\b(order|reservation|booking|table|pickup)\b/i,
+  /\bwhat (did|have) i (order|book|reserve)/i,
+  /\b(already|previously|earlier|before) (ordered|booked|reserved|placed)\b/i,
+  /\border (status|number|no\.?|id|details|confirmation)\b/i,
+  /\bthe (order|reservation|booking) i (placed|made|had|did)\b/i,
+  /\b(previous|earlier|last|prior) (order|reservation|booking)\b/i,
+];
+
+export function refersToPastOrder(text: string): boolean {
+  if (!text || !text.trim()) return false;
+  return PAST_ORDER_RES.some((re) => re.test(text));
+}
