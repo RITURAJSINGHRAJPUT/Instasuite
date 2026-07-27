@@ -44,8 +44,7 @@ const REPLY_GUARD = [
   "Once you have everything needed to place a reservation or takeaway order, confirm it back to the guest and proceed to the hand-off — do not repeat the request for details.",
   "Write only in clear, natural English (or the language the guest is writing in). Never insert stray words or characters from an unrelated language mid-message.",
   "Don't pre-empt with conditional rules, timing caveats, hours, or disclaimers (e.g. prep delays or cutoff times) — raise a condition only when the guest's actual request triggers it, and answer only what they asked.",
-  "If the guest has an earlier reservation or takeaway in this conversation whose date or pickup time has already passed (compare to the current date & time above), treat their new message as a brand-new request — do not resume, re-confirm, or announce that old order as if it's still active. You may still use earlier messages for the guest's name and preferences, and may reference a past order only if the guest explicitly asks about it.",
-  "If you have ALREADY confirmed a reservation or takeaway earlier in this conversation, do NOT re-send that confirmation or its hand-off line on later messages. Greet the guest and answer their new message afresh; only begin a new order (and emit a new hand-off line) if they actually ask to place one.",
+  "Once you have FINALIZED a reservation or takeaway earlier in this conversation (you confirmed it back to the guest and/or emitted its hand-off line), treat any LATER message as a brand-new request: greet and help the guest afresh, and do NOT resume, re-confirm, or re-emit the hand-off for that finished order. Only revisit a past order if the guest explicitly asks about it (to check or change it). You may still reuse their name, contact and preferences, and only start a new hand-off line if they actually place a new order.",
 ].join("\n");
 
 // A safe holding-message result. Every non-answer path returns this shape so the caller

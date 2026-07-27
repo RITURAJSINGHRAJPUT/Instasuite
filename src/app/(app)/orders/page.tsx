@@ -9,6 +9,8 @@ import {
   AlertTriangle,
   X,
   Check,
+  Clock,
+  Heart,
   Loader2,
 } from "lucide-react";
 
@@ -26,6 +28,8 @@ type Order = {
   status: "pending" | "confirmed" | "cancelled";
   created_at: string;
   confirmed_at: string | null;
+  scheduled_at: string | null;
+  feedback_sent_at: string | null;
 };
 
 type Range = "all" | "week" | "month" | "year";
@@ -44,6 +48,22 @@ function relTime(iso: string): string {
 function fullDate(iso: string): string {
   return new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 }
+
+// The booked reservation/pickup time, always shown in IST (the outlets' clock) regardless of the
+// operator's own timezone. e.g. "Sat, 30 Jul, 7:30 pm".
+function bookedTime(iso: string): string {
+  return new Date(iso).toLocaleString("en-IN", {
+    timeZone: "Asia/Kolkata",
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
+}
+
+const bookedLabel = (o: Order) => (o.kind === "reservation" ? "Booked for" : "Pickup");
 
 const acctLabel = (o: Order) => (o.account_username ? `@${o.account_username}` : "Account");
 
@@ -66,6 +86,8 @@ function OrdersInner() {
   const [range, setRange] = useState<Range>("all");
   const [selected, setSelected] = useState<Order | null>(null);
   const [confirming, setConfirming] = useState<string | null>(null);
+  const [sendingFeedback, setSendingFeedback] = useState<string | null>(null);
+  const [feedbackErr, setFeedbackErr] = useState<{ id: string; msg: string } | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -107,6 +129,29 @@ function OrdersInner() {
     } finally {
       setConfirming(null);
       load();
+    }
+  }
+
+  // Manual "send the thank-you now" fallback (reservations). On success we stamp feedback_sent_at
+  // locally so the button flips to "sent"; on a rejected send (e.g. the 24h window) we surface a
+  // note and leave the button actionable — the server didn't stamp it, so it stays retryable.
+  async function sendFeedback(id: string) {
+    setSendingFeedback(id);
+    setFeedbackErr((e) => (e && e.id === id ? null : e));
+    try {
+      const res = await fetch(`/api/orders/${id}/feedback`, { method: "POST" });
+      const d = await res.json().catch(() => ({}));
+      if (res.ok && d.sent) {
+        const stamp: string = d.feedback_sent_at || new Date().toISOString();
+        setOrders((prev) => prev.map((o) => (o.id === id ? { ...o, feedback_sent_at: stamp } : o)));
+        setSelected((s) => (s && s.id === id ? { ...s, feedback_sent_at: stamp } : s));
+      } else {
+        setFeedbackErr({ id, msg: d.error || d.detail || "Couldn't send" });
+      }
+    } catch {
+      setFeedbackErr({ id, msg: "Couldn't send" });
+    } finally {
+      setSendingFeedback(null);
     }
   }
 
@@ -197,6 +242,9 @@ function OrdersInner() {
           onOpen={setSelected}
           onConfirm={confirm}
           confirming={confirming}
+          onFeedback={sendFeedback}
+          sendingFeedback={sendingFeedback}
+          feedbackErr={feedbackErr}
         />
         <Column
           icon={<CalendarClock size={15} className="text-[var(--accent)]" />}
@@ -206,6 +254,9 @@ function OrdersInner() {
           onOpen={setSelected}
           onConfirm={confirm}
           confirming={confirming}
+          onFeedback={sendFeedback}
+          sendingFeedback={sendingFeedback}
+          feedbackErr={feedbackErr}
         />
       </div>
 
@@ -245,6 +296,13 @@ function OrdersInner() {
               </button>
             </div>
 
+            {selected.scheduled_at && (
+              <p className="mt-3 flex items-center gap-1.5 text-[12px] font-bold text-[var(--text-1)]">
+                <Clock size={13} className="flex-shrink-0 text-[var(--accent)]" />
+                {bookedLabel(selected)} {bookedTime(selected.scheduled_at)}
+              </p>
+            )}
+
             <p className="mt-3 text-[10px] font-bold uppercase tracking-wide text-[var(--text-5)]">
               {selected.kind === "takeaway" ? "Order" : "Reservation"}
             </p>
@@ -268,6 +326,36 @@ function OrdersInner() {
                 </button>
               )}
             </div>
+
+            {selected.kind === "reservation" && (
+              <div className="mt-3">
+                {selected.feedback_sent_at ? (
+                  <span className="flex items-center gap-1.5 text-[12px] font-semibold text-[var(--text-4)]">
+                    <Check size={14} /> Feedback sent
+                  </span>
+                ) : (
+                  <>
+                    <button
+                      onClick={() => sendFeedback(selected.id)}
+                      disabled={sendingFeedback === selected.id}
+                      className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--surface-1)] px-4 py-2.5 text-sm font-bold text-[var(--text-2)] transition-colors hover:border-[var(--accent)] disabled:opacity-40"
+                    >
+                      {sendingFeedback === selected.id ? (
+                        <Loader2 size={14} className="animate-spin" />
+                      ) : (
+                        <Heart size={14} />
+                      )}
+                      Send feedback DM
+                    </button>
+                    {feedbackErr?.id === selected.id && (
+                      <p className="mt-1.5 text-[11px] font-semibold text-[var(--danger)]">
+                        {feedbackErr.msg}
+                      </p>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -283,6 +371,9 @@ function Column({
   onOpen,
   onConfirm,
   confirming,
+  onFeedback,
+  sendingFeedback,
+  feedbackErr,
 }: {
   icon: React.ReactNode;
   title: string;
@@ -291,6 +382,9 @@ function Column({
   onOpen: (o: Order) => void;
   onConfirm: (id: string) => void;
   confirming: string | null;
+  onFeedback: (id: string) => void;
+  sendingFeedback: string | null;
+  feedbackErr: { id: string; msg: string } | null;
 }) {
   return (
     <section className="min-w-0">
@@ -321,24 +415,63 @@ function Column({
                 <p className="truncate text-[11px] text-[var(--text-4)]">
                   {acctLabel(o)} · {relTime(o.created_at)}
                 </p>
+                {o.scheduled_at && (
+                  <p className="mt-0.5 flex items-center gap-1 truncate text-[11px] font-semibold text-[var(--text-2)]">
+                    <Clock size={11} className="flex-shrink-0 text-[var(--accent)]" />
+                    {bookedLabel(o)} {bookedTime(o.scheduled_at)}
+                  </p>
+                )}
               </div>
-              {o.status === "confirmed" ? (
-                <span className="flex flex-shrink-0 items-center gap-1 rounded-full bg-[var(--ok-soft)] px-2 py-1 text-[10px] font-bold uppercase text-[var(--ok)]">
-                  <Check size={11} /> Confirmed
-                </span>
-              ) : (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onConfirm(o.id);
-                  }}
-                  disabled={confirming === o.id}
-                  className="flex flex-shrink-0 items-center gap-1 rounded-lg bg-[var(--accent)] px-3 py-1.5 text-[11px] font-bold text-[var(--accent-fg)] transition-colors hover:bg-[var(--accent-hover)] disabled:opacity-40"
-                >
-                  {confirming === o.id ? <Loader2 size={11} className="animate-spin" /> : <Check size={11} />}
-                  Confirm
-                </button>
-              )}
+
+              <div className="flex flex-shrink-0 flex-col items-end gap-1.5">
+                {o.status === "confirmed" ? (
+                  <span className="flex items-center gap-1 rounded-full bg-[var(--ok-soft)] px-2 py-1 text-[10px] font-bold uppercase text-[var(--ok)]">
+                    <Check size={11} /> Confirmed
+                  </span>
+                ) : (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onConfirm(o.id);
+                    }}
+                    disabled={confirming === o.id}
+                    className="flex items-center gap-1 rounded-lg bg-[var(--accent)] px-3 py-1.5 text-[11px] font-bold text-[var(--accent-fg)] transition-colors hover:bg-[var(--accent-hover)] disabled:opacity-40"
+                  >
+                    {confirming === o.id ? <Loader2 size={11} className="animate-spin" /> : <Check size={11} />}
+                    Confirm
+                  </button>
+                )}
+
+                {o.kind === "reservation" &&
+                  (o.feedback_sent_at ? (
+                    <span className="flex items-center gap-1 text-[10px] font-bold text-[var(--text-4)]">
+                      <Check size={11} /> Feedback sent
+                    </span>
+                  ) : (
+                    <div className="flex flex-col items-end gap-0.5">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onFeedback(o.id);
+                        }}
+                        disabled={sendingFeedback === o.id}
+                        className="flex items-center gap-1 rounded-lg border border-[var(--border)] bg-[var(--surface-1)] px-3 py-1.5 text-[11px] font-bold text-[var(--text-2)] transition-colors hover:border-[var(--accent)] disabled:opacity-40"
+                      >
+                        {sendingFeedback === o.id ? (
+                          <Loader2 size={11} className="animate-spin" />
+                        ) : (
+                          <Heart size={11} />
+                        )}
+                        Feedback
+                      </button>
+                      {feedbackErr?.id === o.id && (
+                        <span className="text-[10px] font-semibold text-[var(--danger)]">
+                          {feedbackErr.msg}
+                        </span>
+                      )}
+                    </div>
+                  ))}
+              </div>
             </div>
           ))}
         </div>

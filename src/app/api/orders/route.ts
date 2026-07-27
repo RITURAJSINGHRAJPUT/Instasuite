@@ -15,6 +15,8 @@ type Joined = {
   status: string;
   created_at: string;
   confirmed_at: string | null;
+  scheduled_at: string | null;
+  feedback_sent_at: string | null;
   conversation_id: string | null;
   instagram_account_id: string | null;
   instagram_accounts: { username: string | null } | { username: string | null }[] | null;
@@ -46,7 +48,7 @@ export async function GET(request: NextRequest) {
   const { data, error } = await supabaseAdmin
     .from("orders")
     .select(
-      "id, kind, customer_name, details, status, created_at, confirmed_at, conversation_id, instagram_account_id, instagram_accounts(username)"
+      "id, kind, customer_name, details, status, created_at, confirmed_at, scheduled_at, feedback_sent_at, conversation_id, instagram_account_id, instagram_accounts(username)"
     )
     .in("instagram_account_id", ctx.accountIds)
     .order("created_at", { ascending: false });
@@ -63,6 +65,8 @@ export async function GET(request: NextRequest) {
       status: r.status,
       created_at: r.created_at,
       confirmed_at: r.confirmed_at,
+      scheduled_at: r.scheduled_at,
+      feedback_sent_at: r.feedback_sent_at,
       conversation_id: r.conversation_id,
       account_id: r.instagram_account_id ?? null,
       account_username: acc?.username ?? null,
