@@ -24,12 +24,10 @@ function authorized(request: NextRequest, isSuperAdmin: boolean): boolean {
 type Row = {
   id: string;
   scheduled_at: string;
-  conversation_id: string;
+  conversation_id: string | null;
+  igsid: string | null;
+  instagram_account_id: string | null;
   businesses: { public_handle: string | null } | { public_handle: string | null }[] | null;
-  instagram_conversations:
-    | { igsid: string; instagram_account_id: string }
-    | { igsid: string; instagram_account_id: string }[]
-    | null;
 };
 
 function one<T>(v: T | T[] | null): T | null {
@@ -49,7 +47,7 @@ export async function POST(request: NextRequest) {
   const { data, error } = await supabaseAdmin
     .from("orders")
     .select(
-      "id, scheduled_at, conversation_id, businesses(public_handle), instagram_conversations(igsid, instagram_account_id)"
+      "id, scheduled_at, conversation_id, igsid, instagram_account_id, businesses(public_handle)"
     )
     .eq("kind", "reservation")
     .eq("status", "confirmed")
@@ -65,16 +63,15 @@ export async function POST(request: NextRequest) {
     if (now < feedbackSendAt(row.scheduled_at).getTime()) continue; // not due yet
 
     try {
-      const conv = one(row.instagram_conversations);
-      if (!conv?.igsid || !conv.instagram_account_id) {
-        results.push({ order: row.id, ok: false, detail: "no conversation" });
+      if (!row.igsid || !row.instagram_account_id) {
+        results.push({ order: row.id, ok: false, detail: "no recipient snapshot" });
         continue;
       }
 
       const { data: acc } = await supabaseAdmin
         .from("instagram_accounts")
         .select("ig_account_id")
-        .eq("id", conv.instagram_account_id)
+        .eq("id", row.instagram_account_id)
         .maybeSingle<{ ig_account_id: string }>();
       const resolved = acc && (await resolveAccountByIgId(acc.ig_account_id));
       if (!resolved) {
@@ -85,11 +82,12 @@ export async function POST(request: NextRequest) {
 
       const handle = one(row.businesses)?.public_handle ?? null;
       const message = feedbackMessage(handle);
-      const sendRes = await sendInstagramMessage(conv.igsid, message, resolved.accessToken);
+      const sendRes = await sendInstagramMessage(row.igsid, message, resolved.accessToken);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const rejected: any = sendRes?.error;
 
-      if (!rejected) {
+      // Mirror into the transcript only if the chat still exists (it may have been deleted).
+      if (!rejected && row.conversation_id) {
         await supabaseAdmin.from("instagram_messages").insert({
           conversation_id: row.conversation_id,
           role: "assistant",

@@ -204,7 +204,7 @@ async function processMessage(igAccountId: string, messaging: Messaging) {
 // the message insert does. Staff confirm it later from the Orders page.
 async function captureOrder(
   account: ResolvedAccount,
-  conversation: { id: string; name?: string | null; username?: string | null },
+  conversation: { id: string; igsid: string; name?: string | null; username?: string | null },
   detected: NonNullable<ReturnType<typeof detectHandoff>>
 ) {
   try {
@@ -213,6 +213,8 @@ async function captureOrder(
     const { error } = await supabaseAdmin.from("orders").insert({
       business_id: account.businessId,
       conversation_id: conversation.id,
+      igsid: conversation.igsid,
+      instagram_account_id: account.accountId,
       kind: detected.kind,
       customer_name: customer,
       details: detected.summary,
@@ -232,7 +234,7 @@ async function captureOrder(
 // collision. Staff work these from the Review page; the conversation is flipped to human above.
 async function captureReview(
   account: ResolvedAccount,
-  conversation: { id: string; name?: string | null; username?: string | null },
+  conversation: { id: string; igsid: string; name?: string | null; username?: string | null },
   detected: NonNullable<ReturnType<typeof detectReview>>
 ) {
   try {
@@ -241,6 +243,8 @@ async function captureReview(
     const { error } = await supabaseAdmin.from("review_items").insert({
       business_id: account.businessId,
       conversation_id: conversation.id,
+      igsid: conversation.igsid,
+      instagram_account_id: account.accountId,
       category: detected.category,
       customer_name: customer,
       details: detected.summary,

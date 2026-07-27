@@ -3,9 +3,9 @@ import { supabaseAdmin } from "@/lib/supabase";
 import { getContext } from "@/lib/ownership";
 import { can } from "@/lib/permissions";
 
-// The Orders page's data source — real captured reservations/takeaways (the `orders`
-// ledger), scoped to the caller's accounts. Reads via the service-role client (orders has
-// RLS-on/no-policy), so scoping is enforced in-query by the conversation's account.
+// The Orders page's data source — real captured reservations/takeaways (the `orders` ledger), scoped to
+// the caller's accounts. Reads via the service-role client (orders has RLS-on/no-policy); scoping is by
+// the order's own `instagram_account_id` (snapshotted at capture) so records survive a deleted chat.
 
 type Joined = {
   id: string;
@@ -15,10 +15,9 @@ type Joined = {
   status: string;
   created_at: string;
   confirmed_at: string | null;
-  instagram_conversations:
-    | { instagram_account_id: string; instagram_accounts: { username: string | null } | { username: string | null }[] | null }
-    | { instagram_account_id: string; instagram_accounts: { username: string | null } | { username: string | null }[] | null }[]
-    | null;
+  conversation_id: string | null;
+  instagram_account_id: string | null;
+  instagram_accounts: { username: string | null } | { username: string | null }[] | null;
 };
 
 export async function GET(request: NextRequest) {
@@ -26,41 +25,36 @@ export async function GET(request: NextRequest) {
   if (!ctx) return Response.json({ error: "Unauthorized" }, { status: 401 });
   if (!can(ctx.user.role, "orders")) return Response.json({ error: "Not found" }, { status: 404 });
 
-  // ?count=1 returns just the number of PENDING orders — what the sidebar badge shows
-  // ("new" = not yet confirmed). Same account scoping as the list below; head:true so it
-  // never ships rows. Every early return honours the mode or the caller reads undefined.
+  // ?count=1 returns just the number of PENDING orders — what the sidebar badge shows ("new" = not yet
+  // confirmed). Same account scoping as the list; head:true so it never ships rows.
   const wantCount = request.nextUrl.searchParams.get("count") === "1";
   if (ctx.accountIds.length === 0) return Response.json(wantCount ? { count: 0 } : []);
 
   if (wantCount) {
     const { count, error } = await supabaseAdmin
       .from("orders")
-      .select("id, instagram_conversations!inner(instagram_account_id)", { count: "exact", head: true })
+      .select("id", { count: "exact", head: true })
       .eq("status", "pending")
-      .in("instagram_conversations.instagram_account_id", ctx.accountIds);
+      .in("instagram_account_id", ctx.accountIds);
     if (error) return Response.json({ error: error.message }, { status: 500 });
     return Response.json({ count: count ?? 0 });
   }
 
-  // Scope to the caller's accounts via the order's conversation (staff = all, client = own)
-  // — the same predicate getOwnedConversation uses. The nested embed also gives the account
-  // username for the page's per-account filter.
+  // Scope by the order's own account (staff = all, client = own). The account embed gives the username
+  // for the page's per-account filter; conversation_id is kept for the "open chat" link (null if the
+  // chat was deleted).
   const { data, error } = await supabaseAdmin
     .from("orders")
     .select(
-      "id, kind, customer_name, details, status, created_at, confirmed_at, instagram_conversations!inner(instagram_account_id, instagram_accounts(username))"
+      "id, kind, customer_name, details, status, created_at, confirmed_at, conversation_id, instagram_account_id, instagram_accounts(username)"
     )
-    .in("instagram_conversations.instagram_account_id", ctx.accountIds)
+    .in("instagram_account_id", ctx.accountIds)
     .order("created_at", { ascending: false });
 
   if (error) return Response.json({ error: error.message }, { status: 500 });
 
   const rows = ((data ?? []) as unknown as Joined[]).map((r) => {
-    const conv = Array.isArray(r.instagram_conversations)
-      ? r.instagram_conversations[0]
-      : r.instagram_conversations;
-    const acc = conv?.instagram_accounts;
-    const accObj = Array.isArray(acc) ? acc[0] : acc;
+    const acc = Array.isArray(r.instagram_accounts) ? r.instagram_accounts[0] : r.instagram_accounts;
     return {
       id: r.id,
       kind: r.kind,
@@ -69,8 +63,9 @@ export async function GET(request: NextRequest) {
       status: r.status,
       created_at: r.created_at,
       confirmed_at: r.confirmed_at,
-      account_id: conv?.instagram_account_id ?? null,
-      account_username: accObj?.username ?? null,
+      conversation_id: r.conversation_id,
+      account_id: r.instagram_account_id ?? null,
+      account_username: acc?.username ?? null,
     };
   });
 

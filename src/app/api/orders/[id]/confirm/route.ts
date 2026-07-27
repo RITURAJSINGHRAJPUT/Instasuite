@@ -1,13 +1,13 @@
 import { NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
-import { getContext, getOwnedConversation } from "@/lib/ownership";
+import { getContext } from "@/lib/ownership";
 import { can } from "@/lib/permissions";
 import { resolveAccountByIgId } from "@/lib/tenant";
 import { sendInstagramMessage } from "@/lib/instagram";
 
-// Confirm an order: mark it confirmed AND DM the customer a confirmation. Reuses the same
-// path the manual-send route uses — getOwnedConversation for ownership + the igsid, then
-// resolveAccountByIgId for the account's token to send FROM.
+// Confirm an order: mark it confirmed AND DM the customer a confirmation. Uses the order's OWN snapshotted
+// igsid + instagram_account_id (not the conversation), so it still works if the chat was deleted — the
+// confirmation DM goes out either way, and we only mirror it into the transcript if the chat still exists.
 
 function confirmationText(kind: string, details: string): string {
   // details is the ` · `-joined summary from order-detect.ts — split it back into one bulleted
@@ -30,25 +30,38 @@ export async function POST(_r: NextRequest, { params }: { params: Promise<{ id: 
 
   const { data: order } = await supabaseAdmin
     .from("orders")
-    .select("id, kind, details, status, conversation_id")
+    .select("id, kind, details, status, igsid, instagram_account_id, conversation_id")
     .eq("id", id)
-    .maybeSingle<{ id: string; kind: string; details: string; status: string; conversation_id: string }>();
+    .maybeSingle<{
+      id: string;
+      kind: string;
+      details: string;
+      status: string;
+      igsid: string | null;
+      instagram_account_id: string | null;
+      conversation_id: string | null;
+    }>();
   if (!order) return Response.json({ error: "Not found" }, { status: 404 });
 
-  // Ownership + the conversation (igsid + account) in one call.
-  const conversation = await getOwnedConversation(order.conversation_id, ctx);
-  if (!conversation) return Response.json({ error: "Not found" }, { status: 404 });
+  // Ownership: the order's own account must be one the caller can act on (works even if the chat is gone).
+  if (!order.instagram_account_id || !ctx.accountIds.includes(order.instagram_account_id)) {
+    return Response.json({ error: "Not found" }, { status: 404 });
+  }
 
   // Idempotent: already confirmed → don't re-send the DM.
   if (order.status === "confirmed") {
     return Response.json({ id: order.id, status: "confirmed", already: true });
   }
 
-  // Resolve the account this conversation belongs to, to send the reply FROM it.
+  if (!order.igsid) {
+    return Response.json({ error: "This order has no saved recipient to message." }, { status: 422 });
+  }
+
+  // Resolve the sending token from the order's OWN account (not the conversation).
   const { data: acc } = await supabaseAdmin
     .from("instagram_accounts")
     .select("ig_account_id")
-    .eq("id", conversation.instagram_account_id)
+    .eq("id", order.instagram_account_id)
     .maybeSingle<{ ig_account_id: string }>();
   const resolved = acc && (await resolveAccountByIgId(acc.ig_account_id));
   if (!resolved) {
@@ -56,18 +69,20 @@ export async function POST(_r: NextRequest, { params }: { params: Promise<{ id: 
   }
 
   const message = confirmationText(order.kind, order.details);
-  await sendInstagramMessage(conversation.igsid, message, resolved.accessToken);
+  await sendInstagramMessage(order.igsid, message, resolved.accessToken);
 
-  // Record the confirmation in the transcript so it shows in the Inbox.
-  await supabaseAdmin.from("instagram_messages").insert({
-    conversation_id: order.conversation_id,
-    role: "assistant",
-    content: message,
-  });
-  await supabaseAdmin
-    .from("instagram_conversations")
-    .update({ updated_at: new Date().toISOString() })
-    .eq("id", order.conversation_id);
+  // Mirror the confirmation into the transcript — only if the chat still exists (it may have been deleted).
+  if (order.conversation_id) {
+    await supabaseAdmin.from("instagram_messages").insert({
+      conversation_id: order.conversation_id,
+      role: "assistant",
+      content: message,
+    });
+    await supabaseAdmin
+      .from("instagram_conversations")
+      .update({ updated_at: new Date().toISOString() })
+      .eq("id", order.conversation_id);
+  }
 
   const { data: updated, error } = await supabaseAdmin
     .from("orders")

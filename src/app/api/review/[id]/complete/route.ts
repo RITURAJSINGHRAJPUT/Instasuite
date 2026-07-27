@@ -1,11 +1,12 @@
 import { NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
-import { getContext, getOwnedConversation } from "@/lib/ownership";
+import { getContext } from "@/lib/ownership";
 import { can } from "@/lib/permissions";
 
 // Mark a review item done. Unlike orders' confirm, this sends NO DM — the human replies to the guest
 // in the Inbox (the conversation was flipped to human mode at capture). This route just flips the row's
-// status. Ownership is enforced via getOwnedConversation on the item's conversation.
+// status. Ownership is by the item's own snapshotted instagram_account_id, so it still works if the chat
+// was deleted.
 //
 // ?dismiss=1 marks it 'dismissed' instead of 'completed' (nothing to action) — both are terminal.
 
@@ -17,14 +18,15 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
   const { data: item } = await supabaseAdmin
     .from("review_items")
-    .select("id, status, conversation_id")
+    .select("id, status, instagram_account_id")
     .eq("id", id)
-    .maybeSingle<{ id: string; status: string; conversation_id: string }>();
+    .maybeSingle<{ id: string; status: string; instagram_account_id: string | null }>();
   if (!item) return Response.json({ error: "Not found" }, { status: 404 });
 
-  // Ownership: the item's conversation must belong to the caller's accounts.
-  const conversation = await getOwnedConversation(item.conversation_id, ctx);
-  if (!conversation) return Response.json({ error: "Not found" }, { status: 404 });
+  // Ownership: the item's own account must be one the caller can act on (works even if the chat is gone).
+  if (!item.instagram_account_id || !ctx.accountIds.includes(item.instagram_account_id)) {
+    return Response.json({ error: "Not found" }, { status: 404 });
+  }
 
   const nextStatus = request.nextUrl.searchParams.get("dismiss") === "1" ? "dismissed" : "completed";
 
